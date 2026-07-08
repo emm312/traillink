@@ -2,10 +2,10 @@
 slides.md
 *.iq
 *.jpeg
-*.wave
+*.wav
 *.pem
 *.sh
-*.md
+CLAUDE.md
 .DS_Store
 node_modules/
 images/
