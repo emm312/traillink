@@ -1,0 +1,12 @@
+/target
+slides.md
+*.iq
+*.jpeg
+*.wave
+*.pem
+*.sh
+*.md
+.DS_Store
+node_modules/
+images/
+.env

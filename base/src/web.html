@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TrailLink Base</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050608;
+      --panel: #0b1012;
+      --panel-2: #0e1518;
+      --line: #243237;
+      --muted: #718087;
+      --text: #d7ece7;
+      --green: #57f287;
+      --cyan: #5eead4;
+      --amber: #f6d365;
+      --red: #ff657a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    main {
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+      min-height: 100vh;
+    }
+
+    .topbar,
+    .panel {
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(170px, 1fr) repeat(5, auto);
+      gap: 12px;
+      align-items: center;
+      min-height: 48px;
+      padding: 8px 12px;
+    }
+
+    .brand {
+      color: var(--cyan);
+      font-weight: 800;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .readout {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .readout strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .state {
+      color: var(--green);
+      font-weight: 800;
+    }
+
+    .state.tx { color: var(--red); }
+    .state.rx { color: var(--green); }
+    .state.idle { color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(330px, 0.95fr) minmax(420px, 1.35fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .stack {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel header {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .panel-body {
+      padding: 10px;
+      min-height: 0;
+    }
+
+    .chat {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .log {
+      height: calc(100% - 92px);
+      min-height: 360px;
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .msg {
+      margin-bottom: 4px;
+      overflow-wrap: anywhere;
+    }
+
+    .msg.rx { color: var(--green); }
+    .msg.tx { color: #8ecbff; font-weight: 700; }
+    .msg.system { color: var(--muted); }
+
+    form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    input,
+    button {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #070b0d;
+      color: var(--text);
+      font: inherit;
+    }
+
+    input {
+      min-width: 0;
+      padding: 0 10px;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: var(--cyan);
+    }
+
+    button {
+      padding: 0 12px;
+      cursor: pointer;
+      color: var(--cyan);
+    }
+
+    button:hover {
+      border-color: var(--cyan);
+      background: #0b1517;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #070b0d;
+    }
+
+    .metric label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .metric strong {
+      display: block;
+      color: var(--text);
+      font-size: 18px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .viz-grid {
+      display: grid;
+      grid-template-rows: minmax(260px, 0.95fr) minmax(260px, 1.05fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #040608;
+    }
+
+    .canvas-wrap {
+      height: calc(100% - 34px);
+      min-height: 220px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    .sos {
+      color: var(--red);
+      font-weight: 800;
+    }
+
+    @media (max-width: 920px) {
+      main { min-height: auto; }
+      .topbar { grid-template-columns: 1fr 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .log { height: 360px; }
+      .viz-grid { grid-template-rows: 300px 300px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 560px) {
+      .topbar { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr; }
+      form { grid-template-columns: 1fr; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="topbar">
+      <div class="brand">TRAILLINK BASE</div>
+      <div class="readout">state <strong id="state" class="state idle">IDLE</strong></div>
+      <div class="readout">freq <strong id="freq">--</strong></div>
+      <div class="readout">mode <strong id="mode">--</strong></div>
+      <div class="readout">audio <strong id="audio">--</strong></div>
+      <div class="readout">updated <strong id="updated">--</strong></div>
+    </section>
+
+    <section class="grid">
+      <section class="stack">
+        <article class="panel chat">
+          <header>
+            <span>COMMS</span>
+            <span id="sos" class="sos"></span>
+          </header>
+          <div id="log" class="log"></div>
+          <form id="txForm">
+            <input id="txInput" maxlength="220" autocomplete="off" placeholder="type message">
+            <button type="submit">SEND</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <header><span>LINK</span><span id="imageStatus"></span></header>
+          <div class="panel-body metrics">
+            <div class="metric"><label>SNR</label><strong id="snr">--</strong></div>
+            <div class="metric"><label>RSSI</label><strong id="rssi">--</strong></div>
+            <div class="metric"><label>LOSS</label><strong id="loss">--</strong></div>
+            <div class="metric"><label>CRC</label><strong id="crc">--</strong></div>
+            <div class="metric"><label>SYNC</label><strong id="sync">--</strong></div>
+            <div class="metric"><label>ROUND TRIP</label><strong id="rtt">--</strong></div>
+          </div>
+          <div class="actions">
+            <button id="ackSos" type="button">ACK SOS</button>
+            <button id="clearSos" type="button">CLEAR SOS</button>
+            <button id="clearLocation" type="button">CLEAR LOC</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="viz-grid">
+        <article class="panel">
+          <header><span>WATERFALL</span><span>0-5 kHz</span></header>
+          <div class="canvas-wrap"><canvas id="waterfall"></canvas></div>
+        </article>
+
+        <article class="panel">
+          <header><span>MAP</span><span id="mapLabel">waiting</span></header>
+          <div class="canvas-wrap"><canvas id="map"></canvas></div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      state: document.getElementById('state'),
+      freq: document.getElementById('freq'),
+      mode: document.getElementById('mode'),
+      audio: document.getElementById('audio'),
+      updated: document.getElementById('updated'),
+      log: document.getElementById('log'),
+      sos: document.getElementById('sos'),
+      imageStatus: document.getElementById('imageStatus'),
+      snr: document.getElementById('snr'),
+      rssi: document.getElementById('rssi'),
+      loss: document.getElementById('loss'),
+      crc: document.getElementById('crc'),
+      sync: document.getElementById('sync'),
+      rtt: document.getElementById('rtt'),
+      mapLabel: document.getElementById('mapLabel'),
+      waterfall: document.getElementById('waterfall'),
+      map: document.getElementById('map')
+    };
+
+    let lastLogKey = '';
+
+    document.getElementById('txForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const input = document.getElementById('txInput');
+      const message = input.value.trim();
+      if (!message) return;
+      input.value = '';
+      await postJson('/transmit', { message });
+    });
+
+    document.getElementById('ackSos').addEventListener('click', () => postJson('/sos/ack', {}));
+    document.getElementById('clearSos').addEventListener('click', () => postJson('/sos/clear', {}));
+    document.getElementById('clearLocation').addEventListener('click', () => postJson('/location/clear', {}));
+
+    async function postJson(url, body) {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      }).catch(() => {});
+    }
+
+    async function poll() {
+      try {
+        const response = await fetch('/status', { cache: 'no-store' });
+        if (!response.ok) throw new Error(response.statusText);
+        const snapshot = await response.json();
+        render(snapshot);
+      } catch (error) {
+        els.updated.textContent = 'offline';
+      } finally {
+        setTimeout(poll, 250);
+      }
+    }
+
+    function render(snapshot) {
+      const state = snapshot.radio_state || 'IDLE';
+      els.state.textContent = state;
+      els.state.className = `state ${state.toLowerCase()}`;
+      els.freq.textContent = `${Number(snapshot.frequency_mhz || 0).toFixed(3)} MHz`;
+      els.mode.textContent = snapshot.mode || '--';
+      els.audio.textContent = `${Math.round(snapshot.audio_level || 0)}%`;
+      els.updated.textContent = new Date(Number(snapshot.updated_at_ms)).toLocaleTimeString();
+      els.imageStatus.textContent = snapshot.image_status ? `image ${snapshot.image_status}` : '';
+      els.sos.textContent = snapshot.active_sos
+        ? `SOS ${snapshot.active_sos.id} ${snapshot.active_sos.acknowledged ? 'ACKED' : 'ACTIVE'}`
+        : '';
+
+      const link = snapshot.link || {};
+      els.snr.textContent = link.snr_db == null ? '--' : `${Number(link.snr_db).toFixed(1)} dB`;
+      els.rssi.textContent = link.rssi_dbm == null ? '--' : `${Math.round(link.rssi_dbm)} dBm`;
+      els.loss.textContent = link.packet_loss_percent == null ? '--' : `${Math.round(link.packet_loss_percent)}%`;
+      els.crc.textContent = link.crc_pass == null ? '--' : link.crc_pass ? 'PASS' : 'FAIL';
+      els.sync.textContent = link.sync_score == null ? '--' : `${Number(link.sync_score).toFixed(1)}/16`;
+      els.rtt.textContent = link.round_trip_secs == null ? '--' : `${Number(link.round_trip_secs).toFixed(1)}s`;
+
+      renderLog(snapshot.messages || []);
+      drawWaterfall(els.waterfall, snapshot.waterfall_history || [], snapshot.current_fft || []);
+      drawMap(els.map, snapshot.base_location, snapshot.field_location);
+    }
+
+    function renderLog(messages) {
+      const key = `${messages.length}:${messages.length ? messages[messages.length - 1].text : ''}`;
+      if (key === lastLogKey) return;
+      lastLogKey = key;
+      els.log.replaceChildren();
+      for (const message of messages) {
+        const div = document.createElement('div');
+        div.className = `msg ${message.kind || 'system'}`;
+        div.textContent = message.text;
+        els.log.appendChild(div);
+      }
+      els.log.scrollTop = els.log.scrollHeight;
+    }
+
+    function resizeCanvas(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(rect.width * scale));
+      const height = Math.max(1, Math.floor(rect.height * scale));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      return { ctx, width: rect.width, height: rect.height };
+    }
+
+    function drawWaterfall(canvas, history, currentFft) {
+      const { ctx, width, height } = resizeCanvas(canvas);
+      ctx.fillStyle = '#040608';
+      ctx.fillRect(0, 0, width, height);
+
+      const axisH = 24;
+      const graphH = Math.max(1, height - axisH);
+      const rows = history.length || (currentFft.length ? 1 : 0);
+      const visibleRows = Math.min(rows, Math.max(1, Math.floor(graphH / 3)));
+      const rowH = graphH / Math.max(1, visibleRows);
+      const sourceRows = history.length ? history.slice(0, visibleRows) : [currentFft];
+
+      for (let i = 0; i < sourceRows.length; i++) {
+        const row = sourceRows[i] || [];
+        const y = graphH - (i + 1) * rowH;
+        const cellW = width / Math.max(1, row.length);
+        for (let x = 0; x < row.length; x++) {
+          ctx.fillStyle = heat(row[x] || 0);
+          ctx.fillRect(x * cellW, y, Math.ceil(cellW), Math.ceil(rowH));
+        }
+      }
+
+      ctx.fillStyle = '#0a1012';
+      ctx.fillRect(0, graphH, width, axisH);
+      ctx.strokeStyle = '#243237';
+      ctx.beginPath();
+      ctx.moveTo(0, graphH + 0.5);
+      ctx.lineTo(width, graphH + 0.5);
+      ctx.stroke();
+      ctx.fillStyle = '#718087';
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText('0', 8, graphH + 16);
+      ctx.fillText('2.5 kHz', width / 2 - 24, graphH + 16);
+      ctx.fillText('5 kHz', width - 48, graphH + 16);
+    }
+
+    function heat(value) {
+      const v = Math.max(0, Math.min(1, Number(value) || 0));
+      if (v < 0.08) return '#040608';
+      if (v < 0.28) return `rgb(0, ${Math.round(70 + v * 220)}, ${Math.round(120 + v * 320)})`;
+      if (v < 0.55) return `rgb(${Math.round(v * 80)}, ${Math.round(130 + v * 180)}, ${Math.round(150 - v * 80)})`;
+      if (v < 0.78) return `rgb(${Math.round(190 + v * 60)}, ${Math.round(190 - v * 60)}, 45)`;
+      return `rgb(255, ${Math.round(120 - v * 70)}, ${Math.round(95 - v * 45)})`;
+    }
+
+    function drawMap(canvas, base, field) {
+      const { ctx, width, height } = resizeCanvas(canvas);
+      ctx.fillStyle = '#040608';
+      ctx.fillRect(0, 0, width, height);
+      drawGrid(ctx, width, height);
+
+      const cx = width / 2;
+      const cy = height / 2;
+      const pad = 42;
+      drawCompass(ctx, width, height);
+      drawMarker(ctx, cx, cy, 'B', '#5eead4');
+
+      if (!field) {
+        els.mapLabel.textContent = 'waiting for field GPS';
+        drawText(ctx, 'waiting for field GPS', 16, height - 18, '#718087');
+        return;
+      }
+
+      let fx = cx + Math.min(width, height) * 0.18;
+      let fy = cy - Math.min(width, height) * 0.12;
+      let label = 'field seen; base coords unset';
+      let distance = null;
+      let bearing = null;
+      let rangeM = null;
+
+      if (base) {
+        const projected = project(base, field);
+        distance = haversine(base, field);
+        bearing = bearingDeg(base, field);
+        rangeM = Math.max(250, Math.max(Math.abs(projected.eastM), Math.abs(projected.northM)) * 2.4);
+        const halfW = Math.max(1, width / 2 - pad);
+        const halfH = Math.max(1, height / 2 - pad);
+        fx = cx + (projected.eastM / rangeM) * halfW * 2;
+        fy = cy - (projected.northM / rangeM) * halfH * 2;
+        fx = clamp(fx, pad, width - pad);
+        fy = clamp(fy, pad, height - pad);
+        label = `${(distance / 1000).toFixed(2)} km ${Math.round(bearing).toString().padStart(3, '0')} deg`;
+      }
+
+      ctx.strokeStyle = '#57f287';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(fx, fy);
+      ctx.stroke();
+
+      if (field.accuracy_m && rangeM) {
+        const radius = clamp((field.accuracy_m / rangeM) * Math.min(width, height), 4, 56);
+        ctx.strokeStyle = 'rgba(87, 242, 135, 0.35)';
+        ctx.beginPath();
+        ctx.arc(fx, fy, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      drawMarker(ctx, fx, fy, 'F', '#57f287');
+      drawText(ctx, label, 16, height - 18, '#d7ece7');
+      drawText(ctx, `field ${field.lat.toFixed(5)}, ${field.lon.toFixed(5)}`, 16, 22, '#718087');
+      els.mapLabel.textContent = label;
+    }
+
+    function drawGrid(ctx, width, height) {
+      ctx.strokeStyle = '#111b1f';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < width; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < height; y += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(width, y + 0.5);
+        ctx.stroke();
+      }
+    }
+
+    function drawCompass(ctx, width, height) {
+      const x = width - 34;
+      const y = 32;
+      ctx.strokeStyle = '#243237';
+      ctx.fillStyle = '#718087';
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.beginPath();
+      ctx.moveTo(x, y - 18);
+      ctx.lineTo(x, y + 18);
+      ctx.moveTo(x - 18, y);
+      ctx.lineTo(x + 18, y);
+      ctx.stroke();
+      ctx.fillText('N', x - 4, y - 22);
+    }
+
+    function drawMarker(ctx, x, y, label, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#040608';
+      ctx.font = '700 11px ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x, y + 0.5);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    function drawText(ctx, text, x, y, color) {
+      ctx.fillStyle = color;
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText(text, x, y);
+    }
+
+    function project(base, field) {
+      const avgLat = ((base.lat + field.lat) / 2) * Math.PI / 180;
+      return {
+        eastM: (field.lon - base.lon) * 111320 * Math.cos(avgLat),
+        northM: (field.lat - base.lat) * 110574
+      };
+    }
+
+    function haversine(a, b) {
+      const r = 6371000;
+      const lat1 = a.lat * Math.PI / 180;
+      const lat2 = b.lat * Math.PI / 180;
+      const dLat = (b.lat - a.lat) * Math.PI / 180;
+      const dLon = (b.lon - a.lon) * Math.PI / 180;
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+      return r * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    }
+
+    function bearingDeg(a, b) {
+      const lat1 = a.lat * Math.PI / 180;
+      const lat2 = b.lat * Math.PI / 180;
+      const dLon = (b.lon - a.lon) * Math.PI / 180;
+      const y = Math.sin(dLon) * Math.cos(lat2);
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    window.addEventListener('resize', () => {
+      fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(render).catch(() => {});
+    });
+    poll();
+  </script>
+</body>
+</html>

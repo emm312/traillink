@@ -1,0 +1,19 @@
+[package]
+name = "base"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libhackrf = "0.1.1"
+num-complex = "0.4.6"
+crossbeam-channel = "0.5"
+modem = { path = "../modem" }
+ratatui = "0.28"
+crossterm = "0.28"
+rustfft = "6.2"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.37", features = ["rt-multi-thread", "net"] }
+axum = "0.7"

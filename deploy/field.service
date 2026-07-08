@@ -1,0 +1,20 @@
+[Unit]
+Description=TrailLink Field Station
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=emm312
+Group=emm312
+WorkingDirectory=/home/emm312/blackbird
+Environment=FIELD_HOST=::
+Environment=FIELD_PORT=8080
+Environment=FIELD_CERT=/home/emm312/blackbird/cert.pem
+Environment=FIELD_KEY=/home/emm312/blackbird/key.pem
+ExecStart=/home/emm312/blackbird/field
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
