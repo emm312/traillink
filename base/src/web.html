@@ -4,130 +4,198 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TrailLink Base</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <style>
     :root {
       color-scheme: dark;
-      --bg: #050608;
-      --panel: #0b1012;
-      --panel-2: #0e1518;
-      --line: #243237;
-      --muted: #718087;
-      --text: #d7ece7;
-      --green: #57f287;
-      --cyan: #5eead4;
-      --amber: #f6d365;
-      --red: #ff657a;
+      --bg: #000;
+      --panel: #050505;
+      --field: #0b0b0b;
+      --line: #3a3a3a;
+      --line-strong: #f2f2f2;
+      --muted: #9a9a9a;
+      --text: #f7f7f7;
+      --dim: #646464;
+      --bad: #fff;
     }
 
     * { box-sizing: border-box; }
 
+    html,
+    body {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
     body {
       margin: 0;
-      min-height: 100vh;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font: 13px/1.42 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      padding: 0 9px;
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      text-transform: uppercase;
+    }
+
+    button:hover,
+    button:focus-visible {
+      border-color: var(--line-strong);
+      outline: 0;
+    }
+
+    button[aria-pressed="true"],
+    button.primary {
+      background: var(--text);
+      color: var(--bg);
+      border-color: var(--text);
+    }
+
+    input {
+      height: 32px;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      padding: 0 10px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+    }
+
+    input:focus {
+      border-color: var(--line-strong);
     }
 
     main {
-      width: min(1440px, 100%);
+      width: min(1500px, 100%);
+      height: 100dvh;
+      max-height: 100dvh;
+      min-height: 0;
       margin: 0 auto;
-      padding: 14px;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
-      gap: 10px;
-      min-height: 100vh;
-    }
-
-    .topbar,
-    .panel {
-      background: linear-gradient(180deg, var(--panel-2), var(--panel));
-      border: 1px solid var(--line);
-      border-radius: 8px;
     }
 
     .topbar {
-      display: grid;
-      grid-template-columns: minmax(170px, 1fr) repeat(5, auto);
-      gap: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 13px;
       align-items: center;
-      min-height: 48px;
+      align-content: center;
       padding: 8px 12px;
+      border-bottom: 1px solid var(--line-strong);
+      background: var(--bg);
     }
 
     .brand {
-      color: var(--cyan);
-      font-weight: 800;
+      font-size: 16px;
+      font-weight: 900;
       letter-spacing: 0;
+      margin-right: auto;
       white-space: nowrap;
     }
 
     .readout {
+      min-width: 0;
       color: var(--muted);
       white-space: nowrap;
     }
 
     .readout strong {
       color: var(--text);
-      font-weight: 700;
-    }
-
-    .state {
-      color: var(--green);
       font-weight: 800;
     }
 
-    .state.tx { color: var(--red); }
-    .state.rx { color: var(--green); }
-    .state.idle { color: var(--muted); }
-
-    .grid {
-      display: grid;
-      grid-template-columns: minmax(330px, 0.95fr) minmax(420px, 1.35fr);
-      gap: 10px;
-      min-height: 0;
+    .state {
+      padding-bottom: 1px;
+      border-bottom: 1px solid transparent;
     }
 
-    .stack {
-      display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
-      gap: 10px;
-      min-height: 0;
+    .state.tx {
+      border-bottom-color: var(--text);
     }
 
-    .panel {
+    .state.rx {
+      outline: 1px solid var(--line);
+      outline-offset: 2px;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(360px, 0.88fr) minmax(540px, 1.42fr);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .left,
+    .right {
       min-width: 0;
       min-height: 0;
-      overflow: hidden;
+      display: grid;
     }
 
-    .panel header {
-      height: 34px;
+    .left {
+      grid-template-rows: auto minmax(0, 1fr);
+      border-right: 1px solid var(--line);
+    }
+
+    .right {
+      grid-template-rows: minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1.2fr);
+    }
+
+    section {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--panel);
+    }
+
+    section + section {
+      border-top: 1px solid var(--line);
+    }
+
+    .section-head {
+      min-height: 30px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      padding: 0 10px;
+      gap: 12px;
+      padding: 5px 8px;
       border-bottom: 1px solid var(--line);
-      color: var(--cyan);
-      font-weight: 700;
+      color: var(--text);
+      font-weight: 800;
+      text-transform: uppercase;
     }
 
-    .panel-body {
-      padding: 10px;
-      min-height: 0;
-    }
-
-    .chat {
-      display: flex;
-      flex-direction: column;
+    .section-head small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: none;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
 
     .log {
-      height: calc(100% - 92px);
-      min-height: 360px;
+      min-height: 0;
       overflow: auto;
       padding: 10px;
+      background: var(--bg);
     }
 
     .msg {
@@ -135,191 +203,312 @@
       overflow-wrap: anywhere;
     }
 
-    .msg.rx { color: var(--green); }
-    .msg.tx { color: #8ecbff; font-weight: 700; }
+    .msg.rx::before { content: "RX "; color: var(--muted); }
+    .msg.tx::before { content: "TX "; color: var(--muted); }
     .msg.system { color: var(--muted); }
 
     form {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
-      padding: 10px;
+      padding: 8px;
+      border-top: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .link-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
       border-top: 1px solid var(--line);
     }
 
-    input,
-    button {
-      height: 38px;
+    .link-row {
+      display: contents;
+    }
+
+    .link-cell {
+      min-height: 32px;
+      padding: 6px 8px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .link-cell label {
+      color: var(--muted);
+      margin-right: 6px;
+      text-transform: uppercase;
+    }
+
+    .link-cell strong {
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .chat-section {
+      min-height: 0;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 8px;
+      background: var(--panel);
+    }
+
+    .actions button {
+      width: 100%;
+      min-width: 0;
+    }
+
+    canvas,
+    #map {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      display: block;
+      background: var(--bg);
+    }
+
+    .map-wrap,
+    .canvas-wrap {
+      min-height: 0;
+      position: relative;
+    }
+
+    .map-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .notice {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      z-index: 500;
+      max-width: calc(100% - 20px);
+      padding: 6px 8px;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #070b0d;
+      background: rgba(0, 0, 0, 0.86);
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    .notice:empty {
+      display: none;
+    }
+
+    .sos {
+      color: var(--text);
+      font-weight: 900;
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+      text-underline-offset: 3px;
+    }
+
+    .leaflet-container {
+      background: var(--bg);
       color: var(--text);
       font: inherit;
     }
 
-    input {
-      min-width: 0;
-      padding: 0 10px;
-      outline: none;
+    .leaflet-tile {
+      filter: grayscale(1) contrast(1.08);
     }
 
-    input:focus {
-      border-color: var(--cyan);
+    .leaflet-bar a,
+    .leaflet-control-attribution {
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      border-color: var(--line) !important;
     }
 
-    button {
-      padding: 0 12px;
-      cursor: pointer;
-      color: var(--cyan);
+    .leaflet-control-attribution a {
+      color: var(--text) !important;
     }
 
-    button:hover {
-      border-color: var(--cyan);
-      background: #0b1517;
-    }
-
-    .metrics {
+    .map-marker {
+      width: 26px;
+      height: 26px;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .metric {
-      min-height: 58px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px;
-      background: #070b0d;
-    }
-
-    .metric label {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 4px;
-    }
-
-    .metric strong {
-      display: block;
+      place-items: center;
+      border: 2px solid var(--text);
+      background: var(--bg);
       color: var(--text);
-      font-size: 18px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      font-weight: 900;
+      box-shadow: 0 0 0 2px var(--bg);
     }
 
-    .viz-grid {
-      display: grid;
-      grid-template-rows: minmax(260px, 0.95fr) minmax(260px, 1.05fr);
-      gap: 10px;
-      min-height: 0;
+    @media (max-width: 1120px) {
+      .topbar {
+        gap: 6px 10px;
+      }
+
+      .workspace {
+        grid-template-columns: minmax(280px, 0.95fr) minmax(340px, 1.05fr);
+      }
+
+      .left {
+        border-right: 1px solid var(--line);
+        border-bottom: 0;
+      }
+
+      .right {
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr);
+      }
     }
 
-    canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-      background: #040608;
-    }
+    @media (max-width: 760px) {
+      body {
+        font-size: 12px;
+      }
 
-    .canvas-wrap {
-      height: calc(100% - 34px);
-      min-height: 220px;
-    }
+      .topbar {
+        gap: 5px 9px;
+        padding: 6px 8px;
+      }
 
-    .actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      padding: 10px;
-      border-top: 1px solid var(--line);
-    }
+      .brand {
+        width: 100%;
+      }
 
-    .sos {
-      color: var(--red);
-      font-weight: 800;
-    }
+      form {
+        grid-template-columns: 1fr;
+      }
 
-    @media (max-width: 920px) {
-      main { min-height: auto; }
-      .topbar { grid-template-columns: 1fr 1fr; }
-      .grid { grid-template-columns: 1fr; }
-      .log { height: 360px; }
-      .viz-grid { grid-template-rows: 300px 300px; }
-      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
+      button {
+        width: 100%;
+      }
 
-    @media (max-width: 560px) {
-      .topbar { grid-template-columns: 1fr; }
-      .metrics { grid-template-columns: 1fr; }
-      form { grid-template-columns: 1fr; }
-      button { width: 100%; }
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 0.96fr) minmax(0, 1.04fr);
+      }
+
+      .left {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .link-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .right {
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+      }
     }
   </style>
 </head>
 <body>
   <main>
-    <section class="topbar">
+    <header class="topbar">
       <div class="brand">TRAILLINK BASE</div>
       <div class="readout">state <strong id="state" class="state idle">IDLE</strong></div>
       <div class="readout">freq <strong id="freq">--</strong></div>
-      <div class="readout">mode <strong id="mode">--</strong></div>
+      <div class="readout">mode <button id="modeToggle" type="button" aria-pressed="false">Manual</button></div>
       <div class="readout">audio <strong id="audio">--</strong></div>
+      <div class="readout">snr <strong id="topSnr">--</strong></div>
+      <div class="readout">rssi <strong id="topRssi">--</strong></div>
+      <div class="readout">loss <strong id="topLoss">--</strong></div>
+      <div class="readout">crc <strong id="topCrc">--</strong></div>
+      <div class="readout">sync <strong id="topSync">--</strong></div>
+      <div class="readout">rtt <strong id="topRtt">--</strong></div>
       <div class="readout">updated <strong id="updated">--</strong></div>
-    </section>
+    </header>
 
-    <section class="grid">
-      <section class="stack">
-        <article class="panel chat">
-          <header>
+    <div class="workspace">
+      <div class="left">
+        <section aria-label="Link details">
+          <div class="section-head">
+            <span>LINK</span>
+            <small id="imageStatus"></small>
+          </div>
+          <div class="link-strip">
+            <div class="link-row">
+              <div class="link-cell"><label>SNR</label><strong id="snr">--</strong></div>
+              <div class="link-cell"><label>RSSI</label><strong id="rssi">--</strong></div>
+              <div class="link-cell"><label>LOSS</label><strong id="loss">--</strong></div>
+            </div>
+            <div class="link-row">
+              <div class="link-cell"><label>CRC</label><strong id="crc">--</strong></div>
+              <div class="link-cell"><label>SYNC</label><strong id="sync">--</strong></div>
+              <div class="link-cell"><label>ROUND TRIP</label><strong id="rtt">--</strong></div>
+            </div>
+            <div class="link-row">
+              <div class="link-cell"><label>FEC</label><strong id="fec">--</strong></div>
+              <div class="link-cell"><label>FIELD</label><strong id="fieldCoords">--</strong></div>
+              <div class="link-cell"><label>BASE</label><strong id="baseCoords">--</strong></div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="ackSos" type="button">RE-ACK SOS</button>
+            <button id="clearSos" type="button">CLEAR SOS</button>
+            <button id="clearLocation" type="button">CLEAR FIELD LOC</button>
+          </div>
+        </section>
+
+        <section class="chat-section" aria-label="Communications">
+          <div class="section-head">
             <span>COMMS</span>
-            <span id="sos" class="sos"></span>
-          </header>
+            <small id="sos" class="sos"></small>
+          </div>
           <div id="log" class="log"></div>
           <form id="txForm">
             <input id="txInput" maxlength="220" autocomplete="off" placeholder="type message">
-            <button type="submit">SEND</button>
+            <button class="primary" type="submit">Send</button>
           </form>
-        </article>
+        </section>
+      </div>
 
-        <article class="panel">
-          <header><span>LINK</span><span id="imageStatus"></span></header>
-          <div class="panel-body metrics">
-            <div class="metric"><label>SNR</label><strong id="snr">--</strong></div>
-            <div class="metric"><label>RSSI</label><strong id="rssi">--</strong></div>
-            <div class="metric"><label>LOSS</label><strong id="loss">--</strong></div>
-            <div class="metric"><label>CRC</label><strong id="crc">--</strong></div>
-            <div class="metric"><label>SYNC</label><strong id="sync">--</strong></div>
-            <div class="metric"><label>ROUND TRIP</label><strong id="rtt">--</strong></div>
-          </div>
-          <div class="actions">
-            <button id="ackSos" type="button">ACK SOS</button>
-            <button id="clearSos" type="button">CLEAR SOS</button>
-            <button id="clearLocation" type="button">CLEAR LOC</button>
-          </div>
-        </article>
-      </section>
+      <div class="right">
+        <section aria-label="FFT spectrum">
+          <div class="section-head"><span>FFT</span><small>0-5 kHz</small></div>
+          <div class="canvas-wrap"><canvas id="fft"></canvas></div>
+        </section>
 
-      <section class="viz-grid">
-        <article class="panel">
-          <header><span>WATERFALL</span><span>0-5 kHz</span></header>
+        <section aria-label="Waterfall">
+          <div class="section-head"><span>WATERFALL</span><small>0-5 kHz, fast scroll</small></div>
           <div class="canvas-wrap"><canvas id="waterfall"></canvas></div>
-        </article>
+        </section>
 
-        <article class="panel">
-          <header><span>MAP</span><span id="mapLabel">waiting</span></header>
-          <div class="canvas-wrap"><canvas id="map"></canvas></div>
-        </article>
-      </section>
-    </section>
+        <section aria-label="Map">
+          <div class="section-head">
+            <span>MAP</span>
+            <div class="map-tools">
+              <small id="mapLabel">waiting</small>
+              <button id="baseGps" type="button">GPS</button>
+            </div>
+          </div>
+          <div class="map-wrap">
+            <div id="map"></div>
+            <div id="mapNotice" class="notice"></div>
+          </div>
+        </section>
+      </div>
+    </div>
   </main>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     const els = {
       state: document.getElementById('state'),
       freq: document.getElementById('freq'),
-      mode: document.getElementById('mode'),
+      modeToggle: document.getElementById('modeToggle'),
       audio: document.getElementById('audio'),
+      topSnr: document.getElementById('topSnr'),
+      topRssi: document.getElementById('topRssi'),
+      topLoss: document.getElementById('topLoss'),
+      topCrc: document.getElementById('topCrc'),
+      topSync: document.getElementById('topSync'),
+      topRtt: document.getElementById('topRtt'),
       updated: document.getElementById('updated'),
       log: document.getElementById('log'),
       sos: document.getElementById('sos'),
@@ -330,12 +519,33 @@
       crc: document.getElementById('crc'),
       sync: document.getElementById('sync'),
       rtt: document.getElementById('rtt'),
+      fec: document.getElementById('fec'),
+      fieldCoords: document.getElementById('fieldCoords'),
+      baseCoords: document.getElementById('baseCoords'),
       mapLabel: document.getElementById('mapLabel'),
+      mapNotice: document.getElementById('mapNotice'),
+      fft: document.getElementById('fft'),
       waterfall: document.getElementById('waterfall'),
-      map: document.getElementById('map')
+      baseGps: document.getElementById('baseGps')
     };
 
     let lastLogKey = '';
+    let currentMode = 'Manual';
+    let map = null;
+    let baseMarker = null;
+    let fieldMarker = null;
+    let fieldAccuracy = null;
+    let linkLine = null;
+    let lastMapKey = '';
+    let waterfallRows = [];
+    let latestWaterfallRow = [];
+    let waterfallRowLength = 0;
+    let pendingSnapshot = null;
+    let renderQueued = false;
+    const STATUS_POLL_MS = 120;
+    const WATERFALL_INTERVAL_MS = 33;
+    const WATERFALL_ROW_PX = 1;
+    const WATERFALL_ROWS_PER_TICK = 3;
 
     document.getElementById('txForm').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -349,13 +559,23 @@
     document.getElementById('ackSos').addEventListener('click', () => postJson('/sos/ack', {}));
     document.getElementById('clearSos').addEventListener('click', () => postJson('/sos/clear', {}));
     document.getElementById('clearLocation').addEventListener('click', () => postJson('/location/clear', {}));
+    els.modeToggle.addEventListener('click', async () => {
+      const next = currentMode.toLowerCase() === 'claude' ? 'manual' : 'claude';
+      els.modeToggle.disabled = true;
+      await postJson('/mode', { mode: next });
+      els.modeToggle.disabled = false;
+    });
+    els.baseGps.addEventListener('click', setBaseFromBrowserGps);
 
     async function postJson(url, body) {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body)
-      }).catch(() => {});
+      try {
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+      } catch {
+      }
     }
 
     async function poll() {
@@ -363,20 +583,40 @@
         const response = await fetch('/status', { cache: 'no-store' });
         if (!response.ok) throw new Error(response.statusText);
         const snapshot = await response.json();
-        render(snapshot);
+        scheduleRender(snapshot);
       } catch (error) {
         els.updated.textContent = 'offline';
       } finally {
-        setTimeout(poll, 250);
+        setTimeout(poll, STATUS_POLL_MS);
       }
+    }
+
+    function scheduleRender(snapshot) {
+      pendingSnapshot = snapshot;
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        if (pendingSnapshot) render(pendingSnapshot);
+      });
     }
 
     function render(snapshot) {
       const state = snapshot.radio_state || 'IDLE';
+      const link = snapshot.link || {};
+      const snr = link.snr_db == null ? '--' : `${Number(link.snr_db).toFixed(1)} dB`;
+      const rssi = link.rssi_dbm == null ? '--' : `${Math.round(link.rssi_dbm)} dBm`;
+      const loss = link.packet_loss_percent == null ? '--' : `${Math.round(link.packet_loss_percent)}%`;
+      const crc = link.crc_pass == null ? '--' : link.crc_pass ? 'PASS' : 'FAIL';
+      const sync = link.sync_score == null ? '--' : `${Number(link.sync_score).toFixed(1)}/16`;
+      const rtt = link.round_trip_secs == null ? '--' : `${Number(link.round_trip_secs).toFixed(1)}s`;
+
       els.state.textContent = state;
       els.state.className = `state ${state.toLowerCase()}`;
       els.freq.textContent = `${Number(snapshot.frequency_mhz || 0).toFixed(3)} MHz`;
-      els.mode.textContent = snapshot.mode || '--';
+      currentMode = snapshot.mode || 'Manual';
+      els.modeToggle.textContent = currentMode;
+      els.modeToggle.setAttribute('aria-pressed', String(currentMode.toLowerCase() === 'claude'));
       els.audio.textContent = `${Math.round(snapshot.audio_level || 0)}%`;
       els.updated.textContent = new Date(Number(snapshot.updated_at_ms)).toLocaleTimeString();
       els.imageStatus.textContent = snapshot.image_status ? `image ${snapshot.image_status}` : '';
@@ -384,17 +624,31 @@
         ? `SOS ${snapshot.active_sos.id} ${snapshot.active_sos.acknowledged ? 'ACKED' : 'ACTIVE'}`
         : '';
 
-      const link = snapshot.link || {};
-      els.snr.textContent = link.snr_db == null ? '--' : `${Number(link.snr_db).toFixed(1)} dB`;
-      els.rssi.textContent = link.rssi_dbm == null ? '--' : `${Math.round(link.rssi_dbm)} dBm`;
-      els.loss.textContent = link.packet_loss_percent == null ? '--' : `${Math.round(link.packet_loss_percent)}%`;
-      els.crc.textContent = link.crc_pass == null ? '--' : link.crc_pass ? 'PASS' : 'FAIL';
-      els.sync.textContent = link.sync_score == null ? '--' : `${Number(link.sync_score).toFixed(1)}/16`;
-      els.rtt.textContent = link.round_trip_secs == null ? '--' : `${Number(link.round_trip_secs).toFixed(1)}s`;
+      els.topSnr.textContent = snr;
+      els.topRssi.textContent = rssi;
+      els.topLoss.textContent = loss;
+      els.topCrc.textContent = crc;
+      els.topSync.textContent = sync;
+      els.topRtt.textContent = rtt;
+      els.snr.textContent = snr;
+      els.rssi.textContent = rssi;
+      els.loss.textContent = loss;
+      els.crc.textContent = crc;
+      els.sync.textContent = sync;
+      els.rtt.textContent = rtt;
+      els.fec.textContent = link.fec_corrections == null ? '--' : String(link.fec_corrections);
+      els.fieldCoords.textContent = formatCoords(snapshot.field_location);
+      els.baseCoords.textContent = formatCoords(snapshot.base_location);
 
       renderLog(snapshot.messages || []);
-      drawWaterfall(els.waterfall, snapshot.waterfall_history || [], snapshot.current_fft || []);
-      drawMap(els.map, snapshot.base_location, snapshot.field_location);
+      drawSpectrum(els.fft, snapshot.current_fft || []);
+      setLatestWaterfallRow(
+        snapshot.waterfall_history || [],
+        snapshot.current_fft || [],
+        state,
+        Number(snapshot.audio_level || 0)
+      );
+      updateMap(snapshot.base_location, snapshot.field_location);
     }
 
     function renderLog(messages) {
@@ -425,169 +679,255 @@
       return { ctx, width: rect.width, height: rect.height };
     }
 
-    function drawWaterfall(canvas, history, currentFft) {
+    function drawSpectrum(canvas, fft) {
       const { ctx, width, height } = resizeCanvas(canvas);
-      ctx.fillStyle = '#040608';
+      ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
+      drawAxis(ctx, width, height);
+      if (!fft.length) return;
 
       const axisH = 24;
       const graphH = Math.max(1, height - axisH);
-      const rows = history.length || (currentFft.length ? 1 : 0);
-      const visibleRows = Math.min(rows, Math.max(1, Math.floor(graphH / 3)));
-      const rowH = graphH / Math.max(1, visibleRows);
-      const sourceRows = history.length ? history.slice(0, visibleRows) : [currentFft];
+      ctx.strokeStyle = '#f7f7f7';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let i = 0; i < fft.length; i++) {
+        const x = fft.length === 1 ? 0 : (i / (fft.length - 1)) * width;
+        const y = graphH - clamp(Number(fft[i]) || 0, 0, 1) * (graphH - 10) - 5;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
 
-      for (let i = 0; i < sourceRows.length; i++) {
-        const row = sourceRows[i] || [];
-        const y = graphH - (i + 1) * rowH;
-        const cellW = width / Math.max(1, row.length);
-        for (let x = 0; x < row.length; x++) {
-          ctx.fillStyle = heat(row[x] || 0);
-          ctx.fillRect(x * cellW, y, Math.ceil(cellW), Math.ceil(rowH));
+      ctx.fillStyle = '#f7f7f7';
+      const barW = Math.max(1, width / fft.length);
+      for (let i = 0; i < fft.length; i++) {
+        const value = clamp(Number(fft[i]) || 0, 0, 1);
+        const barH = value * graphH;
+        ctx.globalAlpha = 0.28;
+        ctx.fillRect(i * barW, graphH - barH, Math.ceil(barW), barH);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function setLatestWaterfallRow(history, currentFft, radioState, audioLevel) {
+      const newest = history.length ? history[0] : currentFft;
+      if (!newest || !newest.length) return;
+      const signalActive = radioState === 'TX' || radioState === 'RX' || audioLevel > 1;
+      latestWaterfallRow = signalActive ? newest.slice() : new Array(newest.length).fill(0);
+      if (latestWaterfallRow.length !== waterfallRowLength) {
+        waterfallRowLength = latestWaterfallRow.length;
+        waterfallRows = makeBlackRows(waterfallCapacity(els.waterfall), waterfallRowLength);
+      }
+    }
+
+    function tickWaterfall() {
+      const capacity = waterfallCapacity(els.waterfall);
+      if (!waterfallRowLength && latestWaterfallRow.length) {
+        waterfallRowLength = latestWaterfallRow.length;
+      }
+      if (waterfallRowLength && waterfallRows.length !== capacity) {
+        const existing = waterfallRows.slice(0, capacity);
+        const black = makeBlackRows(Math.max(0, capacity - existing.length), waterfallRowLength);
+        waterfallRows = existing.concat(black);
+      }
+      if (waterfallRowLength) {
+        const row = latestWaterfallRow.length
+          ? latestWaterfallRow.slice()
+          : new Array(waterfallRowLength).fill(0);
+        for (let i = 0; i < WATERFALL_ROWS_PER_TICK; i++) {
+          waterfallRows.unshift(row.slice());
+        }
+        waterfallRows = waterfallRows.slice(0, capacity);
+      }
+      drawWaterfall(els.waterfall, waterfallRows);
+    }
+
+    function waterfallCapacity(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const graphH = Math.max(1, rect.height - 24);
+      return Math.max(1, Math.floor(graphH / WATERFALL_ROW_PX));
+    }
+
+    function makeBlackRows(count, length) {
+      return Array.from({ length: count }, () => new Array(length).fill(0));
+    }
+
+    function drawWaterfall(canvas, rows) {
+      const { ctx, width, height } = resizeCanvas(canvas);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+      const axisH = 24;
+      const graphH = Math.max(1, height - axisH);
+      const visibleRows = Math.max(1, Math.floor(graphH / WATERFALL_ROW_PX));
+      const rowH = graphH / visibleRows;
+
+      for (let i = 0; i < visibleRows; i++) {
+        const row = rows[i] || (waterfallRowLength ? new Array(waterfallRowLength).fill(0) : []);
+        const y = i * rowH;
+        for (let x = 0; x < width; x++) {
+          ctx.fillStyle = gray(interpolateRow(row, x / Math.max(1, width - 1)));
+          ctx.fillRect(x, y, 1, Math.ceil(rowH));
         }
       }
+      drawAxis(ctx, width, height);
+    }
 
-      ctx.fillStyle = '#0a1012';
-      ctx.fillRect(0, graphH, width, axisH);
-      ctx.strokeStyle = '#243237';
+    function interpolateRow(row, ratio) {
+      if (!row.length) return 0;
+      if (row.length === 1) return row[0] || 0;
+      const index = clamp(ratio, 0, 1) * (row.length - 1);
+      const left = Math.floor(index);
+      const right = Math.min(row.length - 1, left + 1);
+      const mix = index - left;
+      return (row[left] || 0) * (1 - mix) + (row[right] || 0) * mix;
+    }
+
+    function drawAxis(ctx, width, height) {
+      const axisH = 24;
+      const y = height - axisH;
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, y, width, axisH);
+      ctx.strokeStyle = '#3a3a3a';
       ctx.beginPath();
-      ctx.moveTo(0, graphH + 0.5);
-      ctx.lineTo(width, graphH + 0.5);
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(width, y + 0.5);
       ctx.stroke();
-      ctx.fillStyle = '#718087';
+      ctx.fillStyle = '#9a9a9a';
       ctx.font = '12px ui-monospace, monospace';
-      ctx.fillText('0', 8, graphH + 16);
-      ctx.fillText('2.5 kHz', width / 2 - 24, graphH + 16);
-      ctx.fillText('5 kHz', width - 48, graphH + 16);
+      ctx.fillText('0', 8, y + 16);
+      ctx.fillText('2.5 kHz', width / 2 - 26, y + 16);
+      ctx.fillText('5 kHz', width - 50, y + 16);
     }
 
-    function heat(value) {
-      const v = Math.max(0, Math.min(1, Number(value) || 0));
-      if (v < 0.08) return '#040608';
-      if (v < 0.28) return `rgb(0, ${Math.round(70 + v * 220)}, ${Math.round(120 + v * 320)})`;
-      if (v < 0.55) return `rgb(${Math.round(v * 80)}, ${Math.round(130 + v * 180)}, ${Math.round(150 - v * 80)})`;
-      if (v < 0.78) return `rgb(${Math.round(190 + v * 60)}, ${Math.round(190 - v * 60)}, 45)`;
-      return `rgb(255, ${Math.round(120 - v * 70)}, ${Math.round(95 - v * 45)})`;
+    function gray(value) {
+      const v = clamp(Number(value) || 0, 0, 1);
+      if (v <= 0) return '#000';
+      const level = Math.round(12 + v * 230);
+      return `rgb(${level}, ${level}, ${level})`;
     }
 
-    function drawMap(canvas, base, field) {
-      const { ctx, width, height } = resizeCanvas(canvas);
-      ctx.fillStyle = '#040608';
-      ctx.fillRect(0, 0, width, height);
-      drawGrid(ctx, width, height);
+    function initMap() {
+      if (!window.L || map) return Boolean(map);
+      map = L.map('map', {
+        zoomControl: true,
+        attributionControl: true
+      }).setView([-33.8688, 151.2093], 11);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+      return true;
+    }
 
-      const cx = width / 2;
-      const cy = height / 2;
-      const pad = 42;
-      drawCompass(ctx, width, height);
-      drawMarker(ctx, cx, cy, 'B', '#5eead4');
-
-      if (!field) {
-        els.mapLabel.textContent = 'waiting for field GPS';
-        drawText(ctx, 'waiting for field GPS', 16, height - 18, '#718087');
+    function updateMap(base, field) {
+      if (!initMap()) {
+        els.mapNotice.textContent = 'map library unavailable';
         return;
       }
+      const key = JSON.stringify({ base, field });
+      if (key === lastMapKey) return;
+      lastMapKey = key;
 
-      let fx = cx + Math.min(width, height) * 0.18;
-      let fy = cy - Math.min(width, height) * 0.12;
-      let label = 'field seen; base coords unset';
-      let distance = null;
-      let bearing = null;
-      let rangeM = null;
-
+      const points = [];
       if (base) {
-        const projected = project(base, field);
-        distance = haversine(base, field);
-        bearing = bearingDeg(base, field);
-        rangeM = Math.max(250, Math.max(Math.abs(projected.eastM), Math.abs(projected.northM)) * 2.4);
-        const halfW = Math.max(1, width / 2 - pad);
-        const halfH = Math.max(1, height / 2 - pad);
-        fx = cx + (projected.eastM / rangeM) * halfW * 2;
-        fy = cy - (projected.northM / rangeM) * halfH * 2;
-        fx = clamp(fx, pad, width - pad);
-        fy = clamp(fy, pad, height - pad);
-        label = `${(distance / 1000).toFixed(2)} km ${Math.round(bearing).toString().padStart(3, '0')} deg`;
+        const latLng = [base.lat, base.lon];
+        points.push(latLng);
+        baseMarker = upsertMarker(baseMarker, latLng, 'B', 'Base');
+      } else if (baseMarker) {
+        map.removeLayer(baseMarker);
+        baseMarker = null;
       }
 
-      ctx.strokeStyle = '#57f287';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(fx, fy);
-      ctx.stroke();
-
-      if (field.accuracy_m && rangeM) {
-        const radius = clamp((field.accuracy_m / rangeM) * Math.min(width, height), 4, 56);
-        ctx.strokeStyle = 'rgba(87, 242, 135, 0.35)';
-        ctx.beginPath();
-        ctx.arc(fx, fy, radius, 0, Math.PI * 2);
-        ctx.stroke();
+      if (field) {
+        const latLng = [field.lat, field.lon];
+        points.push(latLng);
+        fieldMarker = upsertMarker(fieldMarker, latLng, 'F', 'Field');
+        if (field.accuracy_m != null) {
+          if (!fieldAccuracy) {
+            fieldAccuracy = L.circle(latLng, {
+              radius: field.accuracy_m,
+              color: '#f7f7f7',
+              weight: 1,
+              fillColor: '#f7f7f7',
+              fillOpacity: 0.08
+            }).addTo(map);
+          } else {
+            fieldAccuracy.setLatLng(latLng);
+            fieldAccuracy.setRadius(field.accuracy_m);
+          }
+        } else if (fieldAccuracy) {
+          map.removeLayer(fieldAccuracy);
+          fieldAccuracy = null;
+        }
+      } else {
+        if (fieldMarker) map.removeLayer(fieldMarker);
+        if (fieldAccuracy) map.removeLayer(fieldAccuracy);
+        fieldMarker = null;
+        fieldAccuracy = null;
       }
 
-      drawMarker(ctx, fx, fy, 'F', '#57f287');
-      drawText(ctx, label, 16, height - 18, '#d7ece7');
-      drawText(ctx, `field ${field.lat.toFixed(5)}, ${field.lon.toFixed(5)}`, 16, 22, '#718087');
-      els.mapLabel.textContent = label;
-    }
-
-    function drawGrid(ctx, width, height) {
-      ctx.strokeStyle = '#111b1f';
-      ctx.lineWidth = 1;
-      for (let x = 0; x < width; x += 32) {
-        ctx.beginPath();
-        ctx.moveTo(x + 0.5, 0);
-        ctx.lineTo(x + 0.5, height);
-        ctx.stroke();
+      if (base && field) {
+        const latLngs = [[base.lat, base.lon], [field.lat, field.lon]];
+        if (!linkLine) {
+          linkLine = L.polyline(latLngs, { color: '#f7f7f7', weight: 2, dashArray: '6 5' }).addTo(map);
+        } else {
+          linkLine.setLatLngs(latLngs);
+        }
+        const distance = haversine(base, field);
+        const bearing = bearingDeg(base, field);
+        els.mapLabel.textContent = `${(distance / 1000).toFixed(2)} km ${Math.round(bearing).toString().padStart(3, '0')} deg`;
+      } else {
+        if (linkLine) map.removeLayer(linkLine);
+        linkLine = null;
+        els.mapLabel.textContent = field ? 'base GPS unset' : base ? 'waiting for field GPS' : 'waiting for GPS';
       }
-      for (let y = 0; y < height; y += 32) {
-        ctx.beginPath();
-        ctx.moveTo(0, y + 0.5);
-        ctx.lineTo(width, y + 0.5);
-        ctx.stroke();
+
+      if (points.length === 2) {
+        map.fitBounds(points, { padding: [36, 36], maxZoom: 15 });
+      } else if (points.length === 1) {
+        map.setView(points[0], Math.max(map.getZoom(), 13));
       }
+      setTimeout(() => map.invalidateSize(), 0);
     }
 
-    function drawCompass(ctx, width, height) {
-      const x = width - 34;
-      const y = 32;
-      ctx.strokeStyle = '#243237';
-      ctx.fillStyle = '#718087';
-      ctx.font = '12px ui-monospace, monospace';
-      ctx.beginPath();
-      ctx.moveTo(x, y - 18);
-      ctx.lineTo(x, y + 18);
-      ctx.moveTo(x - 18, y);
-      ctx.lineTo(x + 18, y);
-      ctx.stroke();
-      ctx.fillText('N', x - 4, y - 22);
+    function upsertMarker(marker, latLng, label, title) {
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="map-marker" title="${title}">${label}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+      if (!marker) return L.marker(latLng, { icon }).addTo(map).bindTooltip(title);
+      marker.setLatLng(latLng);
+      marker.setIcon(icon);
+      return marker;
     }
 
-    function drawMarker(ctx, x, y, label, color) {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(x, y, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#040608';
-      ctx.font = '700 11px ui-monospace, monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, x, y + 0.5);
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
+    function setBaseFromBrowserGps() {
+      if (!navigator.geolocation) {
+        els.mapNotice.textContent = 'browser GPS unavailable';
+        return;
+      }
+      els.baseGps.disabled = true;
+      els.mapNotice.textContent = 'requesting browser GPS';
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        els.baseGps.disabled = false;
+        els.mapNotice.textContent = '';
+        await postJson('/base-location', {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          accuracy_m: pos.coords.accuracy
+        });
+      }, () => {
+        els.baseGps.disabled = false;
+        els.mapNotice.textContent = 'could not get browser GPS';
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
     }
 
-    function drawText(ctx, text, x, y, color) {
-      ctx.fillStyle = color;
-      ctx.font = '12px ui-monospace, monospace';
-      ctx.fillText(text, x, y);
-    }
-
-    function project(base, field) {
-      const avgLat = ((base.lat + field.lat) / 2) * Math.PI / 180;
-      return {
-        eastM: (field.lon - base.lon) * 111320 * Math.cos(avgLat),
-        northM: (field.lat - base.lat) * 110574
-      };
+    function formatCoords(location) {
+      if (!location) return '--';
+      return `${Number(location.lat).toFixed(5)}, ${Number(location.lon).toFixed(5)}`;
     }
 
     function haversine(a, b) {
@@ -614,8 +954,15 @@
     }
 
     window.addEventListener('resize', () => {
-      fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(render).catch(() => {});
+      if (waterfallRowLength) {
+        waterfallRows = waterfallRows.slice(0, waterfallCapacity(els.waterfall));
+      }
+      drawWaterfall(els.waterfall, waterfallRows);
+      if (map) setTimeout(() => map.invalidateSize(), 0);
+      fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(scheduleRender).catch(() => {});
     });
+
+    setInterval(tickWaterfall, WATERFALL_INTERVAL_MS);
     poll();
   </script>
 </body>

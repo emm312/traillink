@@ -1,3 +1,4 @@
+use crate::claude::ReplyMode;
 use axum::{
     Json, Router,
     extract::State,
@@ -27,6 +28,8 @@ pub enum WebCommand {
     AckSos,
     ClearSos,
     ClearLocation,
+    SetReplyMode(ReplyMode),
+    SetBaseLocation(LocationSnapshot),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -140,6 +143,18 @@ struct TransmitPayload {
     message: String,
 }
 
+#[derive(Deserialize)]
+struct SetModePayload {
+    mode: String,
+}
+
+#[derive(Deserialize)]
+struct SetBaseLocationPayload {
+    lat: f64,
+    lon: f64,
+    accuracy_m: Option<f64>,
+}
+
 #[derive(Serialize)]
 struct GenericResponse {
     status: String,
@@ -212,6 +227,8 @@ fn make_router(snapshot: SharedWebState, commands: Sender<WebCommand>) -> Router
         .route("/", get(index))
         .route("/status", get(status))
         .route("/transmit", post(transmit))
+        .route("/mode", post(set_mode))
+        .route("/base-location", post(set_base_location))
         .route("/sos/ack", post(ack_sos))
         .route("/sos/clear", post(clear_sos))
         .route("/location/clear", post(clear_location))
@@ -249,6 +266,56 @@ async fn transmit(
     send_command(&state, WebCommand::Transmit(message), "transmission queued")
 }
 
+async fn set_mode(
+    State(state): State<WebAppState>,
+    Json(payload): Json<SetModePayload>,
+) -> (StatusCode, Json<GenericResponse>) {
+    let mode = match payload.mode.parse::<ReplyMode>() {
+        Ok(mode) => mode,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(GenericResponse {
+                    status: "error".to_string(),
+                    message: Some(error),
+                }),
+            );
+        }
+    };
+
+    send_command(
+        &state,
+        WebCommand::SetReplyMode(mode),
+        "reply mode update queued",
+    )
+}
+
+async fn set_base_location(
+    State(state): State<WebAppState>,
+    Json(payload): Json<SetBaseLocationPayload>,
+) -> (StatusCode, Json<GenericResponse>) {
+    let location = LocationSnapshot {
+        lat: payload.lat,
+        lon: payload.lon,
+        accuracy_m: payload.accuracy_m,
+    };
+    if let Err(error) = validate_location(location) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(GenericResponse {
+                status: "error".to_string(),
+                message: Some(error),
+            }),
+        );
+    }
+
+    send_command(
+        &state,
+        WebCommand::SetBaseLocation(location),
+        "base location updated",
+    )
+}
+
 async fn ack_sos(State(state): State<WebAppState>) -> (StatusCode, Json<GenericResponse>) {
     send_command(&state, WebCommand::AckSos, "SOS acknowledgement queued")
 }
@@ -259,6 +326,21 @@ async fn clear_sos(State(state): State<WebAppState>) -> (StatusCode, Json<Generi
 
 async fn clear_location(State(state): State<WebAppState>) -> (StatusCode, Json<GenericResponse>) {
     send_command(&state, WebCommand::ClearLocation, "field location cleared")
+}
+
+fn validate_location(location: LocationSnapshot) -> Result<(), String> {
+    if !location.lat.is_finite() || !location.lon.is_finite() {
+        return Err("Location coordinates must be finite".to_string());
+    }
+    if !(-90.0..=90.0).contains(&location.lat) || !(-180.0..=180.0).contains(&location.lon) {
+        return Err("Location coordinates are out of range".to_string());
+    }
+    if let Some(accuracy_m) = location.accuracy_m
+        && (!accuracy_m.is_finite() || accuracy_m < 0.0)
+    {
+        return Err("Location accuracy must be a non-negative finite number".to_string());
+    }
+    Ok(())
 }
 
 fn send_command(
@@ -289,4 +371,45 @@ pub fn now_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_base_location_bounds() {
+        assert!(
+            validate_location(LocationSnapshot {
+                lat: -33.8688,
+                lon: 151.2093,
+                accuracy_m: Some(12.0),
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_location(LocationSnapshot {
+                lat: -91.0,
+                lon: 151.2093,
+                accuracy_m: None,
+            })
+            .is_err()
+        );
+        assert!(
+            validate_location(LocationSnapshot {
+                lat: -33.8688,
+                lon: 181.0,
+                accuracy_m: None,
+            })
+            .is_err()
+        );
+        assert!(
+            validate_location(LocationSnapshot {
+                lat: -33.8688,
+                lon: 151.2093,
+                accuracy_m: Some(-1.0),
+            })
+            .is_err()
+        );
+    }
 }

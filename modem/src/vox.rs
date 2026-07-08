@@ -367,9 +367,9 @@ fn fsk_fft_score(samples: &[f32]) -> f32 {
     let max_bin = fft_size / 2;
     let mut total_power = 0.0f32;
     let mut tone_power = 0.0f32;
-    for bin in 1..max_bin {
+    for (bin, sample) in buffer.iter().enumerate().take(max_bin).skip(1) {
         let freq = bin as f32 * crate::SAMPLE_RATE as f32 / fft_size as f32;
-        let power = buffer[bin].norm_sqr();
+        let power = sample.norm_sqr();
         total_power += power;
         if crate::TONES
             .iter()

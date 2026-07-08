@@ -26,7 +26,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 struct App {
     input: String,
@@ -56,7 +56,6 @@ struct LinkDashboard {
     burst_success: VecDeque<bool>,
     snr_history: VecDeque<f32>,
     rssi_history: VecDeque<f32>,
-    pending_tx_at: Option<Instant>,
     round_trip: Option<Duration>,
 }
 
@@ -73,7 +72,6 @@ impl Default for LinkDashboard {
             burst_success: VecDeque::new(),
             snr_history: VecDeque::new(),
             rssi_history: VecDeque::new(),
-            pending_tx_at: None,
             round_trip: None,
         }
     }
@@ -511,8 +509,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             format!("System: Auto-requesting missing chunks: {}", cmd),
                             MessageType::System,
                         ));
-                        let _ = sdr_cmd_tx.send(SdrCommand::Transmit(format!("VK2EMM: {}", cmd)));
-                        note_tx(&mut app);
+                        queue_base_frame(
+                            &mut app,
+                            &sdr_cmd_tx,
+                            modem::frame::MsgType::Response,
+                            false,
+                            format!("VK2EMM: {}", cmd),
+                        );
                     } else if let Some(progress) = rx_msg.strip_prefix("IMAGE_PROGRESS:") {
                         app.image_status = Some(progress.to_string());
                     } else if let Some(complete) = rx_msg.strip_prefix("IMAGE_COMPLETE:") {
@@ -568,7 +571,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     msg_type,
                     has_location,
                     payload,
-                } => handle_rx_frame(&mut app, &claude_tx, msg_type, has_location, payload),
+                } => handle_rx_frame(
+                    &mut app,
+                    &claude_tx,
+                    &sdr_cmd_tx,
+                    msg_type,
+                    has_location,
+                    payload,
+                ),
                 SdrEvent::Telemetry(telemetry) => {
                     apply_link_telemetry(&mut app.link, telemetry);
                 }
@@ -591,8 +601,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let formatted = format!("VK2EMM: {}", trimmed);
                     app.messages
                         .push((format!("[TX/Claude] {}", trimmed), MessageType::Tx));
-                    let _ = sdr_cmd_tx.send(SdrCommand::Transmit(formatted));
-                    note_tx(&mut app);
+                    queue_base_frame(
+                        &mut app,
+                        &sdr_cmd_tx,
+                        modem::frame::MsgType::Response,
+                        false,
+                        formatted,
+                    );
                 }
                 ClaudeEvent::Error { prompt, error } => {
                     app.messages.push((
@@ -608,7 +623,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Handle user input
-        if event::poll(Duration::from_millis(200))?
+        if event::poll(Duration::from_millis(13))?
             && let Event::Key(key) = event::read()?
             && key.kind == event::KeyEventKind::Press
         {
@@ -621,30 +636,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 KeyCode::Tab => {
                     let next_mode = app.reply_mode.toggle();
-                    if next_mode == ReplyMode::Claude && app.claude_config.is_none() {
-                        match ClaudeConfig::from_env() {
-                            Ok(config) => {
-                                app.claude_config = Some(config);
-                                app.reply_mode = ReplyMode::Claude;
-                                app.messages.push((
-                                    "System: Reply mode switched to Claude".to_string(),
-                                    MessageType::System,
-                                ));
-                            }
-                            Err(e) => {
-                                app.messages.push((
-                                    format!("System: Cannot enable Claude mode: {}", e),
-                                    MessageType::System,
-                                ));
-                            }
-                        }
-                    } else {
-                        app.reply_mode = next_mode;
-                        app.messages.push((
-                            format!("System: Reply mode switched to {}", app.reply_mode.label()),
-                            MessageType::System,
-                        ));
-                    }
+                    set_reply_mode(&mut app, next_mode);
                 }
                 KeyCode::Char(c)
                     if app.input.is_empty()
@@ -694,7 +686,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn note_tx(app: &mut App) {
     app.is_tx = true;
     app.audio_level = 0.0;
-    app.link.pending_tx_at = Some(Instant::now());
 }
 
 fn handle_web_command(
@@ -707,7 +698,58 @@ fn handle_web_command(
         web::WebCommand::AckSos => acknowledge_sos(app, sdr_cmd_tx),
         web::WebCommand::ClearSos => clear_sos_banner(app),
         web::WebCommand::ClearLocation => clear_field_location(app),
+        web::WebCommand::SetReplyMode(mode) => set_reply_mode(app, mode),
+        web::WebCommand::SetBaseLocation(location) => set_base_location(app, location),
     }
+}
+
+fn set_reply_mode(app: &mut App, next_mode: ReplyMode) {
+    set_reply_mode_with_loader(app, next_mode, ClaudeConfig::from_env);
+}
+
+fn set_reply_mode_with_loader<F>(app: &mut App, next_mode: ReplyMode, load_config: F)
+where
+    F: FnOnce() -> Result<ClaudeConfig, String>,
+{
+    if next_mode == ReplyMode::Claude && app.claude_config.is_none() {
+        match load_config() {
+            Ok(config) => {
+                app.claude_config = Some(config);
+                app.reply_mode = ReplyMode::Claude;
+                app.messages.push((
+                    "System: Reply mode switched to Claude".to_string(),
+                    MessageType::System,
+                ));
+            }
+            Err(e) => {
+                app.messages.push((
+                    format!("System: Cannot enable Claude mode: {}", e),
+                    MessageType::System,
+                ));
+            }
+        }
+    } else {
+        app.reply_mode = next_mode;
+        app.messages.push((
+            format!("System: Reply mode switched to {}", app.reply_mode.label()),
+            MessageType::System,
+        ));
+    }
+}
+
+fn set_base_location(app: &mut App, location: web::LocationSnapshot) {
+    app.base_location = Some(modem::location::Location {
+        lat: location.lat,
+        lon: location.lon,
+        accuracy_m: location.accuracy_m,
+    });
+    app.messages.push((
+        format!(
+            "System: Base location set from browser GPS: {}",
+            format_location(app.base_location.expect("base location was just set"))
+        ),
+        MessageType::System,
+    ));
 }
 
 fn transmit_text(
@@ -729,25 +771,67 @@ fn transmit_text(
     let clean_local = strip_callsign(text);
     app.messages
         .push((format!("[{}] {}", label, clean_local), MessageType::Tx));
-    let _ = sdr_cmd_tx.send(SdrCommand::Transmit(formatted));
-    note_tx(app);
+    queue_base_frame(
+        app,
+        sdr_cmd_tx,
+        modem::frame::MsgType::Response,
+        false,
+        formatted,
+    );
 }
 
 fn acknowledge_sos(app: &mut App, sdr_cmd_tx: &crossbeam_channel::Sender<SdrCommand>) {
     if let Some(sos) = &mut app.active_sos {
-        let payload = format!("SOS_ACK:{}", sos.id);
+        let id = sos.id.clone();
         sos.acknowledged = true;
-        app.messages.push((
-            format!("System: Sending SOS acknowledgement for {}", sos.id),
-            MessageType::System,
-        ));
-        let _ = sdr_cmd_tx.send(SdrCommand::TransmitFrame {
-            msg_type: modem::frame::MsgType::Ack,
-            has_location: false,
-            payload,
-        });
-        note_tx(app);
+        transmit_sos_ack(
+            app,
+            sdr_cmd_tx,
+            &id,
+            Some(format!("System: Sending SOS acknowledgement for {}", id)),
+        );
     }
+}
+
+fn transmit_sos_ack(
+    app: &mut App,
+    sdr_cmd_tx: &crossbeam_channel::Sender<SdrCommand>,
+    id: &str,
+    log_message: Option<String>,
+) {
+    if let Some(message) = log_message {
+        app.messages.push((message, MessageType::System));
+    }
+    let _ = sdr_cmd_tx.send(SdrCommand::TransmitFrame {
+        msg_type: modem::frame::MsgType::Ack,
+        has_location: false,
+        payload: format!("SOS_ACK:{}", id),
+    });
+    note_tx(app);
+}
+
+fn send_base_frame(
+    sdr_cmd_tx: &crossbeam_channel::Sender<SdrCommand>,
+    msg_type: modem::frame::MsgType,
+    has_location: bool,
+    payload: String,
+) {
+    let _ = sdr_cmd_tx.send(SdrCommand::TransmitFrame {
+        msg_type,
+        has_location,
+        payload,
+    });
+}
+
+fn queue_base_frame(
+    app: &mut App,
+    sdr_cmd_tx: &crossbeam_channel::Sender<SdrCommand>,
+    msg_type: modem::frame::MsgType,
+    has_location: bool,
+    payload: String,
+) {
+    send_base_frame(sdr_cmd_tx, msg_type, has_location, payload);
+    note_tx(app);
 }
 
 fn clear_sos_banner(app: &mut App) {
@@ -1250,12 +1334,13 @@ fn is_field_text_message(text: &str) -> bool {
 fn handle_rx_frame(
     app: &mut App,
     claude_tx: &crossbeam_channel::Sender<ClaudeEvent>,
+    sdr_cmd_tx: &crossbeam_channel::Sender<SdrCommand>,
     msg_type: modem::frame::MsgType,
     has_location: bool,
     payload: String,
 ) {
-    if let Some(sent_at) = app.link.pending_tx_at.take() {
-        app.link.round_trip = Some(sent_at.elapsed());
+    if msg_type == modem::frame::MsgType::Ack {
+        return;
     }
 
     if has_location
@@ -1267,18 +1352,33 @@ fn handle_rx_frame(
     if msg_type == modem::frame::MsgType::SOS
         && let Some(sos) = parse_sos_payload(&payload)
     {
+        let duplicate_sos = app
+            .active_sos
+            .as_ref()
+            .is_some_and(|active| active.id == sos.id);
         app.last_location = sos.location.or(app.last_location);
-        app.messages.push((
-            format!(
-                "[SOS] {} {}",
-                sos.call.clone().unwrap_or_else(|| "unknown".to_string()),
-                sos.message
-                    .clone()
-                    .unwrap_or_else(|| "Emergency".to_string())
-            ),
-            MessageType::Rx,
-        ));
+        let mut sos = sos;
+        sos.acknowledged = true;
+        let ack_id = sos.id.clone();
+        if !duplicate_sos {
+            app.messages.push((
+                format!(
+                    "[SOS] {} {}",
+                    sos.call.clone().unwrap_or_else(|| "unknown".to_string()),
+                    sos.message
+                        .clone()
+                        .unwrap_or_else(|| "Emergency".to_string())
+                ),
+                MessageType::Rx,
+            ));
+        }
         app.active_sos = Some(sos);
+        transmit_sos_ack(
+            app,
+            sdr_cmd_tx,
+            &ack_id,
+            (!duplicate_sos).then(|| format!("System: Auto-acknowledged SOS {}", ack_id)),
+        );
         return;
     }
 
@@ -1370,6 +1470,24 @@ fn bin_fft(magnitudes: &[f64], target_width: usize) -> Vec<f64> {
     binned
 }
 
+fn get_waterfall_span(val: f64) -> Span<'static> {
+    if val < 0.1 {
+        Span::styled(" ", Style::default())
+    } else if val < 0.25 {
+        Span::styled("░", Style::default().fg(Color::Blue))
+    } else if val < 0.4 {
+        Span::styled("▒", Style::default().fg(Color::Blue))
+    } else if val < 0.55 {
+        Span::styled("▒", Style::default().fg(Color::Cyan))
+    } else if val < 0.7 {
+        Span::styled("▓", Style::default().fg(Color::Green))
+    } else if val < 0.85 {
+        Span::styled("▓", Style::default().fg(Color::Yellow))
+    } else {
+        Span::styled("█", Style::default().fg(Color::Red))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1397,6 +1515,40 @@ mod tests {
         assert_eq!(sos.call.as_deref(), Some("VK2EMM/P"));
         assert_eq!(sos.message.as_deref(), Some("broken ankle"));
         assert_eq!(sos.location.unwrap().lon, 151.2093);
+    }
+
+    #[test]
+    fn incoming_sos_is_auto_acknowledged() {
+        let mut app = test_app();
+        let (claude_tx, _claude_rx) = crossbeam_channel::unbounded();
+        let (sdr_tx, sdr_rx) = crossbeam_channel::unbounded();
+
+        handle_rx_frame(
+            &mut app,
+            &claude_tx,
+            &sdr_tx,
+            modem::frame::MsgType::SOS,
+            true,
+            "SOS:123;CALL:VK2EMM/P;LOC:-33.868800,151.209300;ACC:12;MSG:broken ankle".to_string(),
+        );
+
+        match sdr_rx.try_recv().unwrap() {
+            SdrCommand::TransmitFrame {
+                msg_type,
+                has_location,
+                payload,
+            } => {
+                assert_eq!(msg_type, modem::frame::MsgType::Ack);
+                assert!(!has_location);
+                assert_eq!(payload, "SOS_ACK:123");
+            }
+        }
+        assert!(app.active_sos.as_ref().unwrap().acknowledged);
+        assert!(
+            app.messages
+                .iter()
+                .any(|(message, _)| message.contains("Auto-acknowledged SOS 123"))
+        );
     }
 
     #[test]
@@ -1455,7 +1607,112 @@ mod tests {
         let (distance_m, bearing_deg) = distance_and_bearing(base, field);
 
         assert!((distance_m - 1111.9).abs() < 10.0);
-        assert!(bearing_deg < 1.0 || bearing_deg > 359.0);
+        assert!(!(1.0..=359.0).contains(&bearing_deg));
+    }
+
+    #[test]
+    fn browser_base_location_updates_snapshot() {
+        let mut app = test_app();
+        set_base_location(
+            &mut app,
+            web::LocationSnapshot {
+                lat: -33.8688,
+                lon: 151.2093,
+                accuracy_m: Some(9.0),
+            },
+        );
+
+        let snapshot = build_web_snapshot(&app, false, 434_000_000);
+        let base = snapshot.base_location.unwrap();
+        assert_eq!(base.lat, -33.8688);
+        assert_eq!(base.lon, 151.2093);
+        assert_eq!(base.accuracy_m, Some(9.0));
+        assert!(
+            app.messages
+                .last()
+                .unwrap()
+                .0
+                .contains("Base location set from browser GPS")
+        );
+    }
+
+    #[test]
+    fn base_transmission_sends_without_waiting_for_field_ack() {
+        let mut app = test_app();
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        queue_base_frame(
+            &mut app,
+            &tx,
+            modem::frame::MsgType::Response,
+            false,
+            "VK2EMM: hello".to_string(),
+        );
+
+        match rx.try_recv().unwrap() {
+            SdrCommand::TransmitFrame {
+                msg_type,
+                has_location,
+                payload,
+            } => {
+                assert_eq!(msg_type, modem::frame::MsgType::Response);
+                assert!(!has_location);
+                assert_eq!(payload, "VK2EMM: hello");
+            }
+        };
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn claude_mode_loader_failure_keeps_manual() {
+        let mut app = test_app();
+        set_reply_mode_with_loader(&mut app, ReplyMode::Claude, || {
+            Err("ANTHROPIC_API_KEY is not set".to_string())
+        });
+
+        assert_eq!(app.reply_mode, ReplyMode::Manual);
+        assert!(
+            app.messages
+                .last()
+                .unwrap()
+                .0
+                .contains("Cannot enable Claude mode")
+        );
+    }
+
+    #[test]
+    fn claude_mode_loader_success_enables_claude() {
+        let mut app = test_app();
+        set_reply_mode_with_loader(&mut app, ReplyMode::Claude, || {
+            Ok(ClaudeConfig {
+                api_key: "test-key".to_string(),
+                model: "claude-test".to_string(),
+                max_tokens: 100,
+                messages_url: "https://example.invalid/messages".to_string(),
+            })
+        });
+
+        assert_eq!(app.reply_mode, ReplyMode::Claude);
+        assert!(app.claude_config.is_some());
+    }
+
+    fn test_app() -> App {
+        App {
+            input: String::new(),
+            messages: Vec::new(),
+            current_fft: vec![0.0; 107],
+            waterfall_history: VecDeque::new(),
+            is_tx: false,
+            audio_level: 0.0,
+            image_status: None,
+            reply_mode: ReplyMode::Manual,
+            claude_config: None,
+            claude_pending: 0,
+            last_location: None,
+            active_sos: None,
+            base_location: None,
+            link: LinkDashboard::default(),
+        }
     }
 
     fn test_location(lat: f64, lon: f64) -> modem::location::Location {
@@ -1464,23 +1721,5 @@ mod tests {
             lon,
             accuracy_m: None,
         }
-    }
-}
-
-fn get_waterfall_span(val: f64) -> Span<'static> {
-    if val < 0.1 {
-        Span::styled(" ", Style::default())
-    } else if val < 0.25 {
-        Span::styled("░", Style::default().fg(Color::Blue))
-    } else if val < 0.4 {
-        Span::styled("▒", Style::default().fg(Color::Blue))
-    } else if val < 0.55 {
-        Span::styled("▒", Style::default().fg(Color::Cyan))
-    } else if val < 0.7 {
-        Span::styled("▓", Style::default().fg(Color::Green))
-    } else if val < 0.85 {
-        Span::styled("▓", Style::default().fg(Color::Yellow))
-    } else {
-        Span::styled("█", Style::default().fg(Color::Red))
     }
 }

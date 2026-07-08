@@ -4,21 +4,26 @@ use modem::demodulator::Demodulator;
 use modem::frame::{Frame, MsgType};
 use modem::image::parse_image_chunk_payload;
 use modem::modulator::Modulator;
-use modem::vox::{FskToneSquelch, VoxState};
+use modem::vox::VoxState;
 use num_complex::Complex;
 use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-const RX_LNA_GAIN_DB: u32 = 40;
-const RX_VGA_GAIN_DB: u32 = 62;
-const RX_AMP_ENABLED: bool = true;
-const FSK_SQUELCH_MIN_RMS: f32 = 0.015;
-const FSK_SQUELCH_OPEN_SCORE: f32 = 0.62;
-const FSK_SQUELCH_CLOSE_SCORE: f32 = 0.54;
-const FSK_SQUELCH_ATTACK_MS: u64 = 10;
-const FSK_SQUELCH_RELEASE_MS: u64 = 150;
+const RX_LNA_GAIN_DB: u32 = 24;
+const RX_VGA_GAIN_DB: u32 = 30;
+const RX_AMP_ENABLED: bool = false;
+const RMS_SQUELCH_ATTACK_MS: u64 = 60;
+const RMS_SQUELCH_RELEASE_MS: u64 = 50;
+const RMS_SQUELCH_CALIBRATION_MS: u64 = 2_000;
+const RMS_SQUELCH_OPEN_MULTIPLIER: f32 = 1.25;
+const RMS_SQUELCH_MIN_OPEN: f32 = 0.001;
+const RMS_SQUELCH_CLOSE_RATIO: f32 = 0.90;
+const RMS_SQUELCH_CLOSE_NOISE_MULTIPLIER: f32 = 1.03;
+const IMAGE_ARQ_CHUNK_SECONDS: f64 = 4.2;
+const IMAGE_ARQ_INITIAL_PADDING_SECONDS: f64 = 3.0;
+const IMAGE_ARQ_RETRY_SECONDS: u64 = 12;
 
 #[derive(Clone)]
 struct TransceiverRxContext {
@@ -77,7 +82,6 @@ fn tx_callback_fn(_device: &HackRf, samples: &mut [Complex<i8>], user: &dyn Any)
 }
 
 pub enum SdrCommand {
-    Transmit(String),
     TransmitFrame {
         msg_type: MsgType,
         has_location: bool,
@@ -120,14 +124,184 @@ pub struct AudioBlock {
     pub direction: AudioDirection,
 }
 
+struct ImageArqTracker {
+    next_request_at: std::time::Instant,
+    total_chunks: usize,
+    received_chunks: usize,
+    awaiting_response: bool,
+}
+
+struct HackRfTxRequest {
+    msg_type: MsgType,
+    has_location: bool,
+    msg: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RmsSquelchCalibration {
+    noise_p99: f32,
+    open_threshold: f32,
+    close_threshold: f32,
+}
+
+struct RmsSquelch {
+    state: VoxState,
+    open_threshold: f32,
+    close_threshold: f32,
+    attack_limit_samples: usize,
+    release_limit_samples: usize,
+    calibration_limit_samples: usize,
+    calibration_samples: usize,
+    calibration_rms: Vec<f32>,
+    above_threshold_count: usize,
+    below_threshold_count: usize,
+}
+
+impl RmsSquelch {
+    fn new(attack_ms: u64, release_ms: u64, calibration_ms: u64, sample_rate: usize) -> Self {
+        Self {
+            state: VoxState::Idle,
+            open_threshold: RMS_SQUELCH_MIN_OPEN,
+            close_threshold: RMS_SQUELCH_MIN_OPEN * RMS_SQUELCH_CLOSE_RATIO,
+            attack_limit_samples: ms_to_samples(attack_ms, sample_rate),
+            release_limit_samples: ms_to_samples(release_ms, sample_rate),
+            calibration_limit_samples: ms_to_samples(calibration_ms, sample_rate),
+            calibration_samples: 0,
+            calibration_rms: Vec::new(),
+            above_threshold_count: 0,
+            below_threshold_count: 0,
+        }
+    }
+
+    fn process_block(&mut self, samples: &[f32]) -> (f32, bool, Option<RmsSquelchCalibration>) {
+        let rms = rms(samples);
+        if samples.is_empty() {
+            return (rms, self.state == VoxState::Active, None);
+        }
+
+        if !self.is_calibrated() {
+            self.calibration_rms.push(rms);
+            self.calibration_samples += samples.len();
+            if self.is_calibrated() {
+                let calibration = self.finish_calibration();
+                return (rms, false, Some(calibration));
+            }
+            return (rms, false, None);
+        }
+
+        let threshold = if self.state == VoxState::Active {
+            self.close_threshold
+        } else {
+            self.open_threshold
+        };
+
+        if rms >= threshold {
+            self.below_threshold_count = 0;
+            self.above_threshold_count += samples.len();
+            if self.state == VoxState::Idle
+                && self.above_threshold_count >= self.attack_limit_samples
+            {
+                self.state = VoxState::Active;
+            }
+        } else {
+            self.above_threshold_count = 0;
+            self.below_threshold_count += samples.len();
+            if self.state == VoxState::Active
+                && self.below_threshold_count >= self.release_limit_samples
+            {
+                self.state = VoxState::Idle;
+            }
+        }
+
+        (rms, self.state == VoxState::Active, None)
+    }
+
+    fn is_calibrated(&self) -> bool {
+        self.calibration_samples >= self.calibration_limit_samples
+    }
+
+    fn finish_calibration(&mut self) -> RmsSquelchCalibration {
+        let noise_p99 = percentile(&mut self.calibration_rms, 0.99);
+        let open_threshold = (noise_p99 * RMS_SQUELCH_OPEN_MULTIPLIER).max(RMS_SQUELCH_MIN_OPEN);
+        let close_threshold = (noise_p99 * RMS_SQUELCH_CLOSE_NOISE_MULTIPLIER)
+            .max(open_threshold * RMS_SQUELCH_CLOSE_RATIO)
+            .min(open_threshold * 0.98);
+        self.open_threshold = open_threshold;
+        self.close_threshold = close_threshold;
+        self.above_threshold_count = 0;
+        self.below_threshold_count = 0;
+        RmsSquelchCalibration {
+            noise_p99,
+            open_threshold,
+            close_threshold,
+        }
+    }
+}
+
+fn ms_to_samples(ms: u64, sample_rate: usize) -> usize {
+    ((ms as usize * sample_rate) / 1000).max(1)
+}
+
+fn rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f32 = samples.iter().map(|sample| sample * sample).sum();
+    (sum_sq / samples.len() as f32).sqrt()
+}
+
+fn percentile(values: &mut [f32], quantile: f32) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(|a, b| a.total_cmp(b));
+    let index = ((values.len() - 1) as f32 * quantile.clamp(0.0, 1.0)).round() as usize;
+    values[index]
+}
+
+fn next_image_arq_request_at(
+    now: std::time::Instant,
+    total_chunks: usize,
+    received_chunks: usize,
+) -> std::time::Instant {
+    let remaining_chunks = total_chunks.saturating_sub(received_chunks);
+    let eta_secs =
+        (remaining_chunks as f64 * IMAGE_ARQ_CHUNK_SECONDS) + IMAGE_ARQ_INITIAL_PADDING_SECONDS;
+    now + std::time::Duration::from_secs_f64(eta_secs)
+}
+
+fn missing_chunk_indices(entry: &[Option<Vec<u8>>]) -> Vec<String> {
+    entry
+        .iter()
+        .enumerate()
+        .filter(|(_, chunk)| chunk.is_none())
+        .map(|(idx, _)| idx.to_string())
+        .collect()
+}
+
+fn acknowledge_pending_image_arq_by_vox(
+    arq_trackers: &mut std::collections::HashMap<u32, ImageArqTracker>,
+    now: std::time::Instant,
+) -> usize {
+    let mut acknowledged = 0;
+    for tracker in arq_trackers.values_mut() {
+        if tracker.awaiting_response && tracker.received_chunks < tracker.total_chunks {
+            tracker.awaiting_response = false;
+            tracker.next_request_at =
+                next_image_arq_request_at(now, tracker.total_chunks, tracker.received_chunks);
+            acknowledged += 1;
+        }
+    }
+    acknowledged
+}
+
 fn estimate_rssi(samples: &[f32]) -> (f32, Option<f32>) {
     if samples.is_empty() {
         return (0.0, None);
     }
-    let sum_sq: f32 = samples.iter().map(|sample| sample * sample).sum();
-    let rms = (sum_sq / samples.len() as f32).sqrt();
-    let percent = ((rms / 0.5) * 100.0).clamp(0.0, 100.0);
-    let dbfs = 20.0 * rms.max(1e-6).log10();
+    let rms_value = rms(samples);
+    let percent = ((rms_value / 0.5) * 100.0).clamp(0.0, 100.0);
+    let dbfs = 20.0 * rms_value.max(1e-6).log10();
     // Relative estimate: calibrated enough for trend display, not lab-grade dBm.
     let dbm = (dbfs - 70.0).clamp(-130.0, -30.0);
     (percent, Some(dbm))
@@ -214,12 +388,10 @@ pub fn run_transceiver_loop(
         let dc_alpha = 0.99f32;
         let mut deemp_prev_y = 0.0f32;
         let deemp_alpha = 0.757f32;
-        let mut squelch = FskToneSquelch::new(
-            FSK_SQUELCH_MIN_RMS,
-            FSK_SQUELCH_OPEN_SCORE,
-            FSK_SQUELCH_CLOSE_SCORE,
-            FSK_SQUELCH_ATTACK_MS,
-            FSK_SQUELCH_RELEASE_MS,
+        let mut squelch = RmsSquelch::new(
+            RMS_SQUELCH_ATTACK_MS,
+            RMS_SQUELCH_RELEASE_MS,
+            RMS_SQUELCH_CALIBRATION_MS,
             modem::SAMPLE_RATE,
         );
 
@@ -232,10 +404,8 @@ pub fn run_transceiver_loop(
 
         let mut base_image_buffers: std::collections::HashMap<u32, Vec<Option<Vec<u8>>>> =
             std::collections::HashMap::new();
-        let mut arq_trackers: std::collections::HashMap<
-            u32,
-            (std::time::Instant, usize, usize, bool),
-        > = std::collections::HashMap::new();
+        let mut arq_trackers: std::collections::HashMap<u32, ImageArqTracker> =
+            std::collections::HashMap::new();
 
         while let Ok(buf) = from_callback.recv() {
             for current_iq in buf.iter() {
@@ -279,11 +449,23 @@ pub fn run_transceiver_loop(
                             direction: AudioDirection::Rx,
                         });
                         let prev_state = squelch.state;
-                        let (_metrics, squelch_active) = squelch.process_block(&vox_block);
+                        let (_rms, squelch_active, calibration) = squelch.process_block(&vox_block);
+                        if let Some(calibration) = calibration {
+                            let _ = msg_tx_clone.send(SdrEvent::Notice(format!(
+                                "VOX_CAL:RMS noise p99 {:.4}, open {:.4}, close {:.4}",
+                                calibration.noise_p99,
+                                calibration.open_threshold,
+                                calibration.close_threshold
+                            )));
+                        }
                         vox_active_clone.store(squelch_active, Ordering::Relaxed);
 
                         match (prev_state, squelch.state) {
                             (VoxState::Idle, VoxState::Active) => {
+                                acknowledge_pending_image_arq_by_vox(
+                                    &mut arq_trackers,
+                                    std::time::Instant::now(),
+                                );
                                 active_buffer.clear();
                                 active_buffer.extend_from_slice(&pre_roll);
                                 active_buffer.extend_from_slice(&vox_block);
@@ -397,17 +579,19 @@ pub fn run_transceiver_loop(
                                                         image_id, count, total_chunks, percent
                                                     )));
 
-                                                // Each chunk takes ~3.6s; use 4.2s plus padding for ARQ timeout.
-                                                let remaining_chunks =
-                                                    total_chunks.saturating_sub(count);
-                                                let eta_secs =
-                                                    (remaining_chunks as f64 * 4.2) + 3.0;
-                                                let eta_timeout = std::time::Instant::now()
-                                                    + std::time::Duration::from_secs_f64(eta_secs);
-
+                                                let now = std::time::Instant::now();
                                                 arq_trackers.insert(
                                                     image_id,
-                                                    (eta_timeout, total_chunks, count, false),
+                                                    ImageArqTracker {
+                                                        next_request_at: next_image_arq_request_at(
+                                                            now,
+                                                            total_chunks,
+                                                            count,
+                                                        ),
+                                                        total_chunks,
+                                                        received_chunks: count,
+                                                        awaiting_response: false,
+                                                    },
                                                 );
 
                                                 if entry.iter().all(|c| c.is_some()) {
@@ -463,20 +647,12 @@ pub fn run_transceiver_loop(
             }
             // Check for ARQ timeouts periodically (approx every 54ms)
             let now = std::time::Instant::now();
-            for (&image_id, (eta_timeout, total_chunks, count, requested)) in
-                arq_trackers.iter_mut()
-            {
-                if !*requested
-                    && *count < *total_chunks
-                    && now > *eta_timeout
+            for (&image_id, tracker) in arq_trackers.iter_mut() {
+                if tracker.received_chunks < tracker.total_chunks
+                    && now > tracker.next_request_at
                     && let Some(entry) = base_image_buffers.get(&image_id)
                 {
-                    let missing_indices: Vec<String> = entry
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, c)| c.is_none())
-                        .map(|(idx, _)| idx.to_string())
-                        .collect();
+                    let missing_indices = missing_chunk_indices(entry);
 
                     if !missing_indices.is_empty() {
                         let indices_str = missing_indices.join(",");
@@ -484,7 +660,9 @@ pub fn run_transceiver_loop(
                             "AUTOTX:REQ_CHUNKS {} {}",
                             image_id, indices_str
                         )));
-                        *requested = true;
+                        tracker.awaiting_response = true;
+                        tracker.next_request_at =
+                            now + std::time::Duration::from_secs(IMAGE_ARQ_RETRY_SECONDS);
                     }
                 }
             }
@@ -499,19 +677,6 @@ pub fn run_transceiver_loop(
     // Main Control Loop
     while let Ok(cmd) = cmd_rx.recv() {
         match cmd {
-            SdrCommand::Transmit(msg) => {
-                transmit_frame(
-                    &hackrf,
-                    sample_rate_rx,
-                    freq,
-                    &rx_ctx,
-                    msg_tx.clone(),
-                    audio_tx.clone(),
-                    MsgType::Response,
-                    false,
-                    msg,
-                );
-            }
             SdrCommand::TransmitFrame {
                 msg_type,
                 has_location,
@@ -524,9 +689,11 @@ pub fn run_transceiver_loop(
                     &rx_ctx,
                     msg_tx.clone(),
                     audio_tx.clone(),
-                    msg_type,
-                    has_location,
-                    payload,
+                    HackRfTxRequest {
+                        msg_type,
+                        has_location,
+                        msg: payload,
+                    },
                 );
             }
         }
@@ -542,9 +709,7 @@ fn transmit_frame(
     rx_ctx: &TransceiverRxContext,
     msg_tx: Sender<SdrEvent>,
     audio_tx: Sender<AudioBlock>,
-    msg_type: MsgType,
-    has_location: bool,
-    msg: String,
+    request: HackRfTxRequest,
 ) {
     // 1. Pause RX
     if let Err(e) = hackrf.stop_rx() {
@@ -555,7 +720,12 @@ fn transmit_frame(
     }
 
     // 2. Prepare TX signal (AFSK modulation)
-    if let Ok(frame) = Frame::new(1, msg_type, has_location, msg.into_bytes()) {
+    if let Ok(frame) = Frame::new(
+        1,
+        request.msg_type,
+        request.has_location,
+        request.msg.into_bytes(),
+    ) {
         let mut modulator = Modulator::new();
         let audio_samples = modulator.modulate(&frame, true, 500);
 
@@ -714,5 +884,133 @@ fn transmit_frame(
             "System Error: Failed to resume RX: {}",
             e
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SAMPLE_RATE: usize = 48_000;
+    const TEST_BLOCK_SIZE: usize = 1_024;
+
+    fn block(value: f32) -> Vec<f32> {
+        vec![value; TEST_BLOCK_SIZE]
+    }
+
+    fn calibrated_squelch() -> RmsSquelch {
+        let mut squelch = RmsSquelch::new(60, 50, 1, TEST_SAMPLE_RATE);
+        let (_, active, calibration) = squelch.process_block(&block(0.01));
+        assert!(!active);
+        assert!(calibration.is_some());
+        squelch
+    }
+
+    #[test]
+    fn rms_squelch_calibrates_from_idle_noise() {
+        let mut squelch = RmsSquelch::new(60, 50, 1, TEST_SAMPLE_RATE);
+
+        let (_, active, calibration) = squelch.process_block(&block(0.01));
+
+        let calibration = calibration.expect("first block should complete test calibration");
+        assert!(!active);
+        assert_eq!(squelch.state, VoxState::Idle);
+        assert!(calibration.open_threshold >= RMS_SQUELCH_MIN_OPEN);
+        assert!(calibration.close_threshold < calibration.open_threshold);
+    }
+
+    #[test]
+    fn rms_squelch_rejects_idle_blocks_below_open_threshold() {
+        let mut squelch = calibrated_squelch();
+
+        for _ in 0..10 {
+            let (_, active, _) = squelch.process_block(&block(0.01));
+            assert!(!active);
+            assert_eq!(squelch.state, VoxState::Idle);
+        }
+    }
+
+    #[test]
+    fn rms_squelch_rejects_single_spike_shorter_than_attack() {
+        let mut squelch = calibrated_squelch();
+
+        let (_, active, _) = squelch.process_block(&block(0.05));
+        assert!(!active);
+        assert_eq!(squelch.state, VoxState::Idle);
+
+        for _ in 0..3 {
+            let (_, active, _) = squelch.process_block(&block(0.01));
+            assert!(!active);
+            assert_eq!(squelch.state, VoxState::Idle);
+        }
+    }
+
+    #[test]
+    fn rms_squelch_opens_after_sustained_signal() {
+        let mut squelch = calibrated_squelch();
+
+        let (_, active, _) = squelch.process_block(&block(0.05));
+        assert!(!active);
+        let (_, active, _) = squelch.process_block(&block(0.05));
+        assert!(!active);
+        let (_, active, _) = squelch.process_block(&block(0.05));
+        assert!(active);
+        assert_eq!(squelch.state, VoxState::Active);
+    }
+
+    #[test]
+    fn rms_squelch_releases_after_50ms_below_close_threshold() {
+        let mut squelch = calibrated_squelch();
+
+        for _ in 0..3 {
+            squelch.process_block(&block(0.05));
+        }
+        assert_eq!(squelch.state, VoxState::Active);
+
+        let (_, active, _) = squelch.process_block(&block(0.0));
+        assert!(active);
+        let (_, active, _) = squelch.process_block(&block(0.0));
+        assert!(active);
+        let (_, active, _) = squelch.process_block(&block(0.0));
+        assert!(!active);
+        assert_eq!(squelch.state, VoxState::Idle);
+    }
+
+    #[test]
+    fn missing_chunk_indices_lists_gaps_for_arq_request() {
+        let chunks = vec![Some(vec![1]), None, Some(vec![3]), None];
+
+        assert_eq!(missing_chunk_indices(&chunks), vec!["1", "3"]);
+    }
+
+    #[test]
+    fn image_arq_request_time_tracks_remaining_chunks() {
+        let now = std::time::Instant::now();
+
+        let request_at = next_image_arq_request_at(now, 5, 3);
+
+        let delay = request_at.duration_since(now).as_secs_f64();
+        assert!((delay - 11.4).abs() < 0.1);
+    }
+
+    #[test]
+    fn open_vox_acknowledges_pending_image_arq_request() {
+        let now = std::time::Instant::now();
+        let mut trackers = std::collections::HashMap::from([(
+            42,
+            ImageArqTracker {
+                next_request_at: now + std::time::Duration::from_secs(12),
+                total_chunks: 5,
+                received_chunks: 3,
+                awaiting_response: true,
+            },
+        )]);
+
+        assert_eq!(acknowledge_pending_image_arq_by_vox(&mut trackers, now), 1);
+
+        let tracker = trackers.get(&42).unwrap();
+        assert!(!tracker.awaiting_response);
+        let delay = tracker.next_request_at.duration_since(now).as_secs_f64();
+        assert!((delay - 11.4).abs() < 0.1);
     }
 }

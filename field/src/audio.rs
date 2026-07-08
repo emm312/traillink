@@ -281,10 +281,10 @@ async fn handle_decoded_frame(state: AppState, frame: Frame) {
         return;
     };
 
-    if frame.msg_type == MsgType::Ack
-        && let Some(id) = payload.strip_prefix("SOS_ACK:")
-    {
-        if state.acknowledge_sos(id).await {
+    if frame.msg_type == MsgType::Ack {
+        if let Some(id) = payload.strip_prefix("SOS_ACK:")
+            && state.acknowledge_sos(id).await
+        {
             state
                 .add_message(format!("System: SOS acknowledged by base ({})", id.trim()))
                 .await;
@@ -477,86 +477,109 @@ pub async fn transmit_image(
 }
 
 pub async fn handle_arq_request(state: AppState, payload: String) {
-    if let Some(idx) = payload.find("REQ_CHUNKS") {
-        let req_part = &payload[idx + 10..]; // Skip "REQ_CHUNKS"
-        let parts: Vec<&str> = req_part.split_whitespace().collect();
-        if parts.len() == 2
-            && let (Ok(image_id), Some(indices_str)) = (parts[0].parse::<u32>(), parts.get(1))
-        {
-            let mut indices = Vec::new();
-            for idx_s in indices_str.split(',') {
-                if let Ok(i) = idx_s.parse::<u16>() {
-                    indices.push(i);
-                }
-            }
-
-            println!(
-                "ARQ Request received for image ID {} chunks {:?}",
-                image_id, indices
-            );
-            if let Some(chunks_to_send) = state.get_last_sent_chunks(image_id, indices).await {
-                let total_chunks_opt = {
-                    let s = state.inner.read().await;
-                    s.last_sent_image
-                        .as_ref()
-                        .map(|(_, d)| d.len().div_ceil(modem::IMAGE_CHUNK_DATA_BYTES))
-                };
-                if let Some(total_chunks) = total_chunks_opt {
-                    let mut all_samples = Vec::new();
-                    let mut modulator = modem::modulator::Modulator::new();
-                    for (i, (chunk_idx, chunk_data)) in chunks_to_send.into_iter().enumerate() {
-                        let total_chunks = match u16::try_from(total_chunks) {
-                            Ok(total_chunks) => total_chunks,
-                            Err(_) => {
-                                eprintln!("ARQ total chunks exceeds u16 range");
-                                return;
-                            }
-                        };
-
-                        let payload = match encode_image_chunk_payload(&ImageChunk {
-                            image_id,
-                            chunk_idx,
-                            total_chunks,
-                            data: chunk_data,
-                        }) {
-                            Ok(payload) => payload,
-                            Err(e) => {
-                                eprintln!("Failed to encode ARQ image chunk: {}", e);
-                                continue;
-                            }
-                        };
-
-                        if let Ok(frame) = modem::frame::Frame::new(
-                            1,
-                            modem::frame::MsgType::ImageChunk,
-                            false,
-                            payload,
-                        ) {
-                            // Dynamic preamble: 1200ms for first chunk of the ARQ burst, 400ms for subsequent chunks
-                            let preamble_ms = if i == 0 { 1200 } else { 400 };
-                            let samples = modulator.modulate(&frame, true, preamble_ms); // Send with FEC
-                            all_samples.extend_from_slice(&samples);
-                            // Add 300 ms of silence (zeros) between chunks
-                            all_samples.extend(vec![0.0f32; 14400]);
+    if let Some((image_id, indices)) = parse_arq_request(&payload) {
+        println!(
+            "ARQ Request received for image ID {} chunks {:?}",
+            image_id, indices
+        );
+        if let Some(chunks_to_send) = state.get_last_sent_chunks(image_id, indices).await {
+            let total_chunks_opt = {
+                let s = state.inner.read().await;
+                s.last_sent_image
+                    .as_ref()
+                    .map(|(_, d)| d.len().div_ceil(modem::IMAGE_CHUNK_DATA_BYTES))
+            };
+            if let Some(total_chunks) = total_chunks_opt {
+                let mut all_samples = Vec::new();
+                let mut modulator = modem::modulator::Modulator::new();
+                for (i, (chunk_idx, chunk_data)) in chunks_to_send.into_iter().enumerate() {
+                    let total_chunks = match u16::try_from(total_chunks) {
+                        Ok(total_chunks) => total_chunks,
+                        Err(_) => {
+                            eprintln!("ARQ total chunks exceeds u16 range");
+                            return;
                         }
+                    };
+
+                    let payload = match encode_image_chunk_payload(&ImageChunk {
+                        image_id,
+                        chunk_idx,
+                        total_chunks,
+                        data: chunk_data,
+                    }) {
+                        Ok(payload) => payload,
+                        Err(e) => {
+                            eprintln!("Failed to encode ARQ image chunk: {}", e);
+                            continue;
+                        }
+                    };
+
+                    if let Ok(frame) = modem::frame::Frame::new(
+                        1,
+                        modem::frame::MsgType::ImageChunk,
+                        false,
+                        payload,
+                    ) {
+                        // Dynamic preamble: 1200ms for first chunk of the ARQ burst, 400ms for subsequent chunks
+                        let preamble_ms = if i == 0 { 1200 } else { 400 };
+                        let samples = modulator.modulate(&frame, true, preamble_ms); // Send with FEC
+                        all_samples.extend_from_slice(&samples);
+                        // Add 300 ms of silence (zeros) between chunks
+                        all_samples.extend(vec![0.0f32; 14400]);
                     }
+                }
 
-                    if !all_samples.is_empty() {
-                        println!("ARQ: Transmitting requested chunks over the air...");
-                        if let Err(e) =
-                            play_samples(&state, &all_samples, "ARQ chunk retransmission").await
-                        {
-                            eprintln!("ARQ retransmission failed: {}", e);
-                            state
-                                .add_message(format!(
-                                    "System Error: ARQ retransmission failed: {}",
-                                    e
-                                ))
-                                .await;
-                        }
+                if !all_samples.is_empty() {
+                    println!("ARQ: Transmitting requested chunks over the air...");
+                    if let Err(e) =
+                        play_samples(&state, &all_samples, "ARQ chunk retransmission").await
+                    {
+                        eprintln!("ARQ retransmission failed: {}", e);
+                        state
+                            .add_message(format!("System Error: ARQ retransmission failed: {}", e))
+                            .await;
                     }
                 }
             }
         }
+    }
+}
+
+fn parse_arq_request(payload: &str) -> Option<(u32, Vec<u16>)> {
+    let idx = payload.find("REQ_CHUNKS")?;
+    let req_part = &payload[idx + "REQ_CHUNKS".len()..];
+    let parts: Vec<&str> = req_part.split_whitespace().collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let image_id = parts[0].parse::<u32>().ok()?;
+    let indices = parts[1]
+        .split(',')
+        .filter_map(|idx_s| idx_s.parse::<u16>().ok())
+        .collect::<Vec<_>>();
+    if indices.is_empty() {
+        return None;
+    }
+
+    Some((image_id, indices))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_missing_chunk_arq_request() {
+        assert_eq!(
+            parse_arq_request("VK2EMM: REQ_CHUNKS 42 1,3,5"),
+            Some((42, vec![1, 3, 5]))
+        );
+    }
+
+    #[test]
+    fn rejects_arq_request_without_indices() {
+        assert_eq!(parse_arq_request("VK2EMM: REQ_CHUNKS 42"), None);
+        assert_eq!(parse_arq_request("VK2EMM: REQ_CHUNKS 42 nope"), None);
     }
 }

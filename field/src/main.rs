@@ -383,6 +383,24 @@ mod tests {
         assert!(inner.image_buffers.is_empty());
     }
 
+    #[tokio::test]
+    async fn test_last_sent_image_returns_requested_arq_chunks() {
+        let state = AppState::new();
+        let data: Vec<u8> = (0..=255).cycle().take(620).collect();
+        state.set_last_sent_image(99, data.clone()).await;
+
+        let chunks = state.get_last_sent_chunks(99, vec![0, 2, 9]).await.unwrap();
+
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].0, 0);
+        assert_eq!(chunks[0].1, data[..modem::IMAGE_CHUNK_DATA_BYTES].to_vec());
+        assert_eq!(chunks[1].0, 2);
+        assert_eq!(
+            chunks[1].1,
+            data[2 * modem::IMAGE_CHUNK_DATA_BYTES..].to_vec()
+        );
+    }
+
     #[test]
     fn test_base64_decode_rejects_invalid_input() {
         assert!(crate::state::base64_decode("not valid !!!").is_err());
