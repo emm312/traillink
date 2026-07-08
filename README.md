@@ -1,4 +1,4 @@
-# Blackbird / TrailLink
+# TrailLink
 
 Off-grid AI assistance over a custom radio link. A phone joins the field
 station's local WiFi, sends a message through a web chat UI, and the field
