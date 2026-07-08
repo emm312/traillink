@@ -23,7 +23,7 @@ This is a Rust workspace with three crates:
 
 ## Radio Protocol
 
-Blackbird uses a public, unencrypted 4-FSK protocol in the audio passband:
+TrailLink uses a public, unencrypted 4-FSK protocol in the audio passband:
 
 - tones: 600, 1200, 1800, and 2400 Hz
 - symbol rate: 600 symbols/s, 2 bits per symbol
@@ -32,8 +32,6 @@ Blackbird uses a public, unencrypted 4-FSK protocol in the audio passband:
 - optional Hamming(7,4) FEC
 - message types for queries, responses, acknowledgements, broadcasts, SOS, and
   image chunks
-
-The detailed protocol notes and engineering constraints live in `CLAUDE.md`.
 
 ## Development
 
@@ -106,35 +104,3 @@ Supported Claude-related environment variables:
 - `ANTHROPIC_MODEL`
 - `ANTHROPIC_MAX_TOKENS`
 - `ANTHROPIC_MESSAGES_URL`
-
-## Raspberry Pi Deployment
-
-The `field` binary is intended to run on a 64-bit Raspberry Pi 3. The deploy
-script cross-compiles the field station and installs it as a systemd service:
-
-```bash
-./deploy.sh
-```
-
-To override the default Pi host:
-
-```bash
-./deploy.sh 192.168.1.50
-```
-
-The deployment path is `/home/emm312/blackbird`, and the installed service is
-`field.service`.
-
-Useful commands on the Pi:
-
-```bash
-sudo systemctl status field.service
-journalctl -u field.service -f
-```
-
-## Legal Notes
-
-This project is designed for operation under an Australian Advanced amateur
-licence. Transmissions must identify with the licensed callsign, and message
-content must not be encrypted or otherwise obscured. The protocol is documented
-publicly for that reason.
