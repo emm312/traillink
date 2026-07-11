@@ -7,7 +7,9 @@ base station receives the message, can optionally ask Claude for a terse reply,
 and sends the response back over the same link.
 
 The project was built for a hackathon, so the design favors reliability and
-simple operations over protocol cleverness.
+simple operations.
+
+A full technical writeup can be found here: https://www.emmanuelk.com.au/blog/traillink-amateur-radio-data-link
 
 ## Workspace
 
